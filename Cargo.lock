@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "parco"
-version = "4.0.0"
+version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79ba0e2df78aa0b25e6917eea0e383456bb60599b9cd12bac69d9ae929f7c2b0"
+checksum = "c1cf2334a793fb8c38948763a3dab2df034ee0753045c04e5722526def297c7c"
 
 [[package]]
 name = "ponlang"
