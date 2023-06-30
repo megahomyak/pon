@@ -394,6 +394,72 @@ mod name_part {
             .or(|| string::parse(rest).map(|string| NamePart::String(string)))
             .or(|| word::parse(rest).map(|word| NamePart::Word(word)))
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn nothing() {
+            assert_eq!(parse(parco::PositionedString::from("")), ParsingResult::Err);
+        }
+
+        #[test]
+        fn whitespace() {
+            assert_eq!(
+                parse(parco::PositionedString::from("\n\t  ")),
+                ParsingResult::Err,
+            );
+        }
+
+        #[test]
+        fn filler() {
+            assert_eq!(
+                parse(parco::PositionedString::from("() rest")),
+                ParsingResult::Ok(
+                    NamePart::Filler(Filler {
+                        content: Program { names: vec![] }
+                    }),
+                    parco::PositionedString {
+                        content: " rest",
+                        position: parco::Position { row: 1, column: 3 }
+                    }
+                )
+            );
+        }
+
+        #[test]
+        fn string() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{abc}rest")),
+                ParsingResult::Ok(
+                    NamePart::String(PonString {
+                        content: "abc".to_owned()
+                    }),
+                    parco::PositionedString {
+                        content: "rest",
+                        position: parco::Position { column: 6, row: 1 }
+                    }
+                )
+            );
+        }
+
+        #[test]
+        fn word() {
+            assert_eq!(
+                parse(parco::PositionedString::from("abc\nrest")),
+                ParsingResult::Ok(
+                    NamePart::Word(Word {
+                        content: "abc".to_owned()
+                    }),
+                    parco::PositionedString {
+                        content: "\nrest",
+                        position: parco::Position { column: 4, row: 1 }
+                    }
+                )
+            );
+        }
+    }
 }
 
 mod name {
@@ -421,6 +487,65 @@ mod name {
                 parts: shrink_vec(parts),
             })
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn nothing() {
+            assert_eq!(parse(parco::PositionedString::from("")), ParsingResult::Err);
+        }
+
+        #[test]
+        fn whitespace() {
+            assert_eq!(
+                parse(parco::PositionedString::from("\n\t  ")),
+                ParsingResult::Err,
+            );
+        }
+
+        #[test]
+        fn correct() {
+            assert_eq!(
+                parse(parco::PositionedString::from("()   blah  \nrest")),
+                ParsingResult::Ok(
+                    Name {
+                        parts: vec![
+                            NamePart::Filler(Filler {
+                                content: Program { names: vec![] }
+                            }),
+                            NamePart::Word(Word {
+                                content: "blah".to_owned()
+                            })
+                        ]
+                    },
+                    parco::PositionedString {
+                        content: "  \nrest",
+                        position: parco::Position { row: 1, column: 10 }
+                    }
+                )
+            );
+        }
+
+        #[test]
+        fn correct_2() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{\n}\nrest")),
+                ParsingResult::Ok(
+                    Name {
+                        parts: vec![NamePart::String(PonString {
+                            content: "\n".to_owned()
+                        })]
+                    },
+                    parco::PositionedString {
+                        content: "\nrest",
+                        position: parco::Position { row: 2, column: 2 }
+                    }
+                )
+            );
+        }
+    }
 }
 
 mod program {
@@ -432,6 +557,125 @@ mod program {
                 names: shrink_vec(action_invocations),
             },
         )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn nothing() {
+            assert_eq!(
+                parse(parco::PositionedString::from("")),
+                CollResult::Ok(
+                    Program { names: vec![] },
+                    parco::PositionedString {
+                        content: "",
+                        position: parco::Position { row: 1, column: 1 }
+                    }
+                ),
+            );
+        }
+
+        #[test]
+        fn whitespace() {
+            assert_eq!(
+                parse(parco::PositionedString::from("\n\t  ")),
+                CollResult::Ok(
+                    Program { names: vec![] },
+                    parco::PositionedString {
+                        content: "\n\t  ",
+                        position: parco::Position { row: 1, column: 1 }
+                    }
+                ),
+            );
+        }
+
+        #[test]
+        fn filled() {
+            assert_eq!(
+                parse(parco::PositionedString::from("one \n two \n three \n\t")),
+                CollResult::Ok(
+                    Program {
+                        names: vec![
+                            Name {
+                                parts: vec![NamePart::Word(Word {
+                                    content: "one".to_owned()
+                                })]
+                            },
+                            Name {
+                                parts: vec![NamePart::Word(Word {
+                                    content: "two".to_owned()
+                                })]
+                            },
+                            Name {
+                                parts: vec![NamePart::Word(Word {
+                                    content: "three".to_owned()
+                                })]
+                            },
+                        ]
+                    },
+                    parco::PositionedString {
+                        content: " \n\t",
+                        position: parco::Position { row: 3, column: 7 }
+                    }
+                ),
+            );
+        }
+
+        #[test]
+        fn unexpected_character() {
+            assert_eq!(
+                parse(parco::PositionedString::from("blah}")),
+                CollResult::Ok(
+                    Program {
+                        names: vec![Name {
+                            parts: vec![NamePart::Word(Word {
+                                content: "blah".to_owned()
+                            })]
+                        }]
+                    },
+                    parco::PositionedString {
+                        content: "}",
+                        position: parco::Position { row: 1, column: 5 }
+                    }
+                ),
+            );
+        }
+
+        #[test]
+        fn unexpected_character_2() {
+            assert_eq!(
+                parse(parco::PositionedString::from("blah)")),
+                CollResult::Ok(
+                    Program {
+                        names: vec![Name {
+                            parts: vec![NamePart::Word(Word {
+                                content: "blah".to_owned()
+                            })]
+                        }]
+                    },
+                    parco::PositionedString {
+                        content: ")",
+                        position: parco::Position { row: 1, column: 5 }
+                    }
+                ),
+            );
+        }
+
+        #[test]
+        fn unexpected_character_3() {
+            assert_eq!(
+                parse(parco::PositionedString::from(")")),
+                CollResult::Ok(
+                    Program { names: vec![] },
+                    parco::PositionedString {
+                        content: ")",
+                        position: parco::Position { row: 1, column: 1 }
+                    }
+                ),
+            );
+        }
     }
 }
 
@@ -456,6 +700,83 @@ mod complete_program {
                 Ok(program)
             }
             CollResult::Fatal(err) => Err(err),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn nothing() {
+            assert_eq!(
+                parse(parco::PositionedString::from("")),
+                Ok(Program { names: vec![] }),
+            );
+        }
+
+        #[test]
+        fn whitespace() {
+            assert_eq!(
+                parse(parco::PositionedString::from("\n\t  ")),
+                Ok(Program { names: vec![] }),
+            );
+        }
+
+        #[test]
+        fn filled() {
+            assert_eq!(
+                parse(parco::PositionedString::from("one \n two \n three \n\t")),
+                Ok(Program {
+                    names: vec![
+                        Name {
+                            parts: vec![NamePart::Word(Word {
+                                content: "one".to_owned()
+                            })]
+                        },
+                        Name {
+                            parts: vec![NamePart::Word(Word {
+                                content: "two".to_owned()
+                            })]
+                        },
+                        Name {
+                            parts: vec![NamePart::Word(Word {
+                                content: "three".to_owned()
+                            })]
+                        },
+                    ]
+                }),
+            );
+        }
+
+        #[test]
+        fn unexpected_character() {
+            assert_eq!(
+                parse(parco::PositionedString::from("blah}")),
+                Err(Error::UnexpectedStringClosure {
+                    position: parco::Position { row: 1, column: 5 }
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_character_2() {
+            assert_eq!(
+                parse(parco::PositionedString::from("blah)")),
+                Err(Error::UnexpectedFillerClosure {
+                    position: parco::Position { row: 1, column: 5 }
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_character_3() {
+            assert_eq!(
+                parse(parco::PositionedString::from(")")),
+                Err(Error::UnexpectedFillerClosure {
+                    position: parco::Position { row: 1, column: 1 }
+                })
+            );
         }
     }
 }
