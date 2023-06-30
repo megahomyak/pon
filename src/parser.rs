@@ -13,7 +13,7 @@ pub struct Word {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Filler {
-    pub contents: Program,
+    pub content: Program,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -326,9 +326,62 @@ mod filler {
             .and(|contents, rest| {
                 parco::one_matching_part(rest, |c| *c == ')')
                     .or(|| Error::UnclosedFiller { opening_position }.into())
-                    .and(|_, rest| ParsingResult::Ok(contents, rest))
-                    .map(|contents| Filler { contents })
+                    .and(|_, rest| ParsingResult::Ok(Filler { content: contents }, rest))
             })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn nothing() {
+            assert_eq!(parse(parco::PositionedString::from("")), ParsingResult::Err);
+        }
+
+        #[test]
+        fn not_closed() {
+            assert_eq!(
+                parse(parco::PositionedString::from("(")),
+                Error::UnclosedFiller {
+                    opening_position: parco::Position { row: 1, column: 1 }
+                }
+                .into()
+            );
+        }
+
+        #[test]
+        fn not_closed_2() {
+            assert_eq!(
+                parse(parco::PositionedString::from("(abc")),
+                Error::UnclosedFiller {
+                    opening_position: parco::Position { row: 1, column: 1 }
+                }
+                .into()
+            );
+        }
+
+        #[test]
+        fn correct() {
+            assert_eq!(
+                parse(parco::PositionedString::from("(abc)rest")),
+                ParsingResult::Ok(
+                    Filler {
+                        content: Program {
+                            names: vec![Name {
+                                parts: vec![NamePart::Word(Word {
+                                    content: "abc".to_owned()
+                                })]
+                            }]
+                        }
+                    },
+                    parco::PositionedString {
+                        content: "rest",
+                        position: parco::Position { column: 6, row: 1 }
+                    }
+                )
+            );
+        }
     }
 }
 
@@ -382,23 +435,31 @@ mod program {
     }
 }
 
-pub fn parse(program: parco::PositionedString) -> Result<Program, Error> {
-    match program::parse(program) {
-        CollResult::Ok(program, rest) => {
-            use parco::Input;
-            if let Some((c, _)) = skip_whitespace(rest).take_one_part() {
-                return Err(match c {
-                    '}' => Error::UnexpectedStringClosure {
-                        position: rest.position,
-                    },
-                    ')' => Error::UnexpectedFillerClosure {
-                        position: rest.position,
-                    },
-                    _ => panic!("something wasn't parsed. Rest: {}", rest.content),
-                });
+mod complete_program {
+    use super::*;
+
+    pub fn parse(program: parco::PositionedString) -> Result<Program, Error> {
+        match program::parse(program) {
+            CollResult::Ok(program, rest) => {
+                use parco::Input;
+                if let Some((c, _)) = skip_whitespace(rest).take_one_part() {
+                    return Err(match c {
+                        '}' => Error::UnexpectedStringClosure {
+                            position: rest.position,
+                        },
+                        ')' => Error::UnexpectedFillerClosure {
+                            position: rest.position,
+                        },
+                        _ => panic!("something wasn't parsed. Rest: {}", rest.content),
+                    });
+                }
+                Ok(program)
             }
-            Ok(program)
+            CollResult::Fatal(err) => Err(err),
         }
-        CollResult::Fatal(err) => Err(err),
     }
+}
+
+pub fn parse(program: parco::PositionedString) -> Result<Program, Error> {
+    complete_program::parse(program)
 }
