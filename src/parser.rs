@@ -164,13 +164,13 @@ mod string {
         #[test]
         fn empty() {
             assert_eq!(
-                parse(parco::PositionedString::from("{} rest")),
+                parse(parco::PositionedString::from("{}}")),
                 ParsingResult::Ok(
                     PonString {
                         content: "".to_owned()
                     },
                     parco::PositionedString {
-                        content: " rest",
+                        content: "}",
                         position: parco::Position { column: 3, row: 1 }
                     }
                 )
@@ -247,6 +247,72 @@ mod word {
                     .norm()
             })
             .map(|content| Word { content })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn nothing() {
+            assert_eq!(parse(parco::PositionedString::from("")), ParsingResult::Err);
+        }
+
+        #[test]
+        fn whitespace() {
+            assert_eq!(
+                parse(parco::PositionedString::from("\n\t  ")),
+                ParsingResult::Err
+            );
+        }
+
+        #[test]
+        fn special_character() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{")),
+                ParsingResult::Err
+            );
+        }
+
+        #[test]
+        fn special_character_2() {
+            assert_eq!(
+                parse(parco::PositionedString::from("(")),
+                ParsingResult::Err
+            );
+        }
+
+        #[test]
+        fn special_character_3() {
+            assert_eq!(
+                parse(parco::PositionedString::from("}")),
+                ParsingResult::Err
+            );
+        }
+
+        #[test]
+        fn special_character_4() {
+            assert_eq!(
+                parse(parco::PositionedString::from(")")),
+                ParsingResult::Err
+            );
+        }
+
+        #[test]
+        fn correct_word() {
+            assert_eq!(
+                parse(parco::PositionedString::from("blah rest")),
+                ParsingResult::Ok(
+                    Word {
+                        content: "blah".to_owned()
+                    },
+                    parco::PositionedString {
+                        content: " rest",
+                        position: parco::Position { column: 5, row: 1 }
+                    }
+                )
+            );
+        }
     }
 }
 
