@@ -780,6 +780,16 @@ mod complete_program {
                 })
             );
         }
+
+        #[test]
+        fn unexpected_character_4() {
+            assert_eq!(
+                parse(parco::PositionedString::from("blah\n  \n }")),
+                Err(Error::UnexpectedStringClosure {
+                    position: parco::Position { row: 3, column: 2 }
+                })
+            );
+        }
     }
 }
 
