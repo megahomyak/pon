@@ -246,7 +246,9 @@ mod word {
                 parco::collect_repeating(std::string::String::from(c), rest, |rest| part(*rest))
                     .norm()
             })
-            .map(|content| Word { content })
+            .map(|content| Word {
+                content: shrink_string(content),
+            })
     }
 
     #[cfg(test)]
