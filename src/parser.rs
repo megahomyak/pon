@@ -688,7 +688,8 @@ mod complete_program {
         match program::parse(program) {
             CollResult::Ok(program, rest) => {
                 use parco::Input;
-                if let Some((c, _)) = skip_whitespace(rest).take_one_part() {
+                let rest = skip_whitespace(rest);
+                if let Some((c, _)) = rest.take_one_part() {
                     return Err(match c {
                         '}' => Error::UnexpectedStringClosure {
                             position: rest.position,
