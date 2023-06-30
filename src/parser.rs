@@ -1,33 +1,39 @@
 type ParsingResult<'a, T> = parco::Result<T, parco::PositionedString<'a>, Error>;
 type CollResult<'a, T> = parco::CollResult<T, parco::PositionedString<'a>, Error>;
-type StdString = std::string::String;
 
-pub struct String {
-    pub content: StdString,
+#[derive(Debug, PartialEq, Eq)]
+pub struct PonString {
+    pub content: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Word {
-    pub content: StdString,
+    pub content: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Filler {
     pub contents: Program,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum NamePart {
     Word(Word),
-    String(String),
+    String(PonString),
     Filler(Filler),
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Name {
     pub parts: Vec<NamePart>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Program {
-    pub action_names: Vec<Name>,
+    pub names: Vec<Name>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     UnclosedFiller { opening_position: parco::Position },
     UnclosedString { opening_position: parco::Position },
@@ -51,7 +57,7 @@ fn skip_whitespace(mut s: parco::PositionedString) -> parco::PositionedString {
     }
 }
 
-fn shrink_string(mut s: StdString) -> StdString {
+fn shrink_string(mut s: String) -> String {
     s.shrink_to_fit();
     s
 }
@@ -64,22 +70,166 @@ fn shrink_vec<T>(mut v: Vec<T>) -> Vec<T> {
 mod string {
     use super::*;
 
-    pub fn parse(rest: parco::PositionedString) -> ParsingResult<String> {
+    pub fn parse(rest: parco::PositionedString) -> ParsingResult<PonString> {
         let opening_position = rest.position;
+        let mut indentation_level: usize = 0;
         parco::one_matching_part(rest, |c| *c == '{')
             .and(|_, rest| {
-                parco::collect_repeating(StdString::new(), rest, |rest| {
-                    parco::one_matching_part(*rest, |c| !"{}".contains(*c))
-                        .map(|c| StdString::from(c))
-                        .or(|| parse(*rest).map(|string| string.content))
+                parco::collect_repeating(String::new(), rest, |rest| {
+                    use parco::Input;
+                    match rest.take_one_part() {
+                        None => Error::UnclosedString { opening_position }.into(),
+                        Some((c, rest)) => {
+                            if c == '}' {
+                                match indentation_level.checked_sub(1) {
+                                    Some(new_level) => indentation_level = new_level,
+                                    None => return ParsingResult::Err,
+                                }
+                            } else if c == '{' {
+                                indentation_level += 1;
+                            }
+                            ParsingResult::Ok(c, rest)
+                        }
+                    }
                 })
                 .norm()
             })
             .and(|content, rest| {
-                parco::one_matching_part(rest, |c| *c == '}')
-                    .or(|| Error::UnclosedString { opening_position }.into())
-                    .map(|_| String { content })
+                use parco::Input;
+                let Some(('}', rest)) = rest.take_one_part() else {
+                    panic!("string must've ended with `}}`, in reality it ended with {:?}", rest.take_one_part())
+                };
+                ParsingResult::Ok(content, rest)
             })
+            .map(|content| PonString {
+                content: shrink_string(content)
+            })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn nothing() {
+            assert_eq!(parse(parco::PositionedString::from("")), ParsingResult::Err);
+        }
+
+        #[test]
+        fn whitespace() {
+            assert_eq!(
+                parse(parco::PositionedString::from(" \t\n ")),
+                ParsingResult::Err
+            );
+        }
+
+        #[test]
+        fn word() {
+            assert_eq!(
+                parse(parco::PositionedString::from("blahblah")),
+                ParsingResult::Err
+            );
+        }
+
+        #[test]
+        fn closure() {
+            assert_eq!(
+                parse(parco::PositionedString::from("}")),
+                ParsingResult::Err
+            );
+        }
+
+        #[test]
+        fn not_closed() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{blah")),
+                Error::UnclosedString {
+                    opening_position: parco::Position { row: 1, column: 1 }
+                }
+                .into()
+            );
+        }
+
+        #[test]
+        fn not_closed_2() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{")),
+                Error::UnclosedString {
+                    opening_position: parco::Position { row: 1, column: 1 }
+                }
+                .into()
+            );
+        }
+
+        #[test]
+        fn empty() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{} rest")),
+                ParsingResult::Ok(
+                    PonString {
+                        content: "".to_owned()
+                    },
+                    parco::PositionedString {
+                        content: " rest",
+                        position: parco::Position { column: 3, row: 1 }
+                    }
+                )
+            );
+        }
+
+        #[test]
+        fn filled() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{abc}rest")),
+                ParsingResult::Ok(
+                    PonString {
+                        content: "abc".to_owned()
+                    },
+                    parco::PositionedString {
+                        content: "rest",
+                        position: parco::Position { column: 6, row: 1 }
+                    }
+                )
+            );
+        }
+
+        #[test]
+        fn nested() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{a{b}c}rest")),
+                ParsingResult::Ok(
+                    PonString {
+                        content: "a{b}c".to_owned()
+                    },
+                    parco::PositionedString {
+                        content: "rest",
+                        position: parco::Position { column: 8, row: 1 }
+                    }
+                )
+            );
+        }
+
+        #[test]
+        fn nested_and_not_closed() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{a{b}c")),
+                Error::UnclosedString {
+                    opening_position: parco::Position { row: 1, column: 1 }
+                }
+                .into()
+            );
+        }
+
+        #[test]
+        fn nested_and_not_closed_2() {
+            assert_eq!(
+                parse(parco::PositionedString::from("{a{bc")),
+                Error::UnclosedString {
+                    opening_position: parco::Position { row: 1, column: 1 }
+                }
+                .into()
+            );
+        }
     }
 }
 
@@ -103,13 +253,28 @@ mod word {
 mod filler {
     use super::*;
 
-    pub fn parse(rest: parco::PositionedString) -> ParsingResult<Filler> {}
+    pub fn parse(rest: parco::PositionedString) -> ParsingResult<Filler> {
+        let opening_position = rest.position;
+        parco::one_matching_part(rest, |c| *c == '(')
+            .and(|_, rest| program::parse(rest).norm())
+            .and(|contents, rest| {
+                parco::one_matching_part(rest, |c| *c == ')')
+                    .or(|| Error::UnclosedFiller { opening_position }.into())
+                    .and(|_, rest| ParsingResult::Ok(contents, rest))
+                    .map(|contents| Filler { contents })
+            })
+    }
 }
 
 mod name_part {
     use super::*;
 
-    pub fn parse(rest: parco::PositionedString) -> ParsingResult<NamePart> {}
+    pub fn parse(rest: parco::PositionedString) -> ParsingResult<NamePart> {
+        filler::parse(rest)
+            .map(|filler| NamePart::Filler(filler))
+            .or(|| string::parse(rest).map(|string| NamePart::String(string)))
+            .or(|| word::parse(rest).map(|word| NamePart::Word(word)))
+    }
 }
 
 mod name {
@@ -145,7 +310,7 @@ mod program {
     pub fn parse(rest: parco::PositionedString) -> CollResult<Program> {
         parco::collect_repeating(Vec::new(), rest, |rest| name::parse(skip_whitespace(*rest))).map(
             |action_invocations| Program {
-                action_names: action_invocations,
+                names: shrink_vec(action_invocations),
             },
         )
     }
