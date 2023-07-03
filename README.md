@@ -1,6 +1,6 @@
 # pon
 
-![Pon logo with text](promotional/pon%20logo%20with%20text.png)
+<img src="promotional/pon%20logo%20with%20text.png" alt="Pon logo with text" width="50%">
 
 Pon is a minimalistic programming language.
 
