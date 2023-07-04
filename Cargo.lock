@@ -15,7 +15,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1cf2334a793fb8c38948763a3dab2df034ee0753045c04e5722526def297c7c"
 
 [[package]]
-name = "ponlang"
+name = "pon"
 version = "0.1.0"
 dependencies = [
  "downcast-rs",
