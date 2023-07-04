@@ -123,11 +123,11 @@ fn execute(scope: &Arc<Scope>, program: &parser::Program) -> Output {
         let mut key = Vec::new();
         for part in &name.parts {
             match part {
-                parser::NamePart::Word(word) => key.push(NamePart::Word(word.content.clone())),
+                parser::NamePart::Word(word) => key.push(NamePart::Word(word.clone())),
                 parser::NamePart::String(string) => {
                     key.push(NamePart::Gap);
                     args.push(Arc::new(PonString {
-                        content: string.content.clone(),
+                        content: string.clone(),
                         context: Arc::clone(scope),
                     }))
                 }
