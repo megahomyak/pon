@@ -1,30 +1,48 @@
-use std::{sync::{Arc, Mutex}, collections::HashMap};
+use std::sync::Arc;
 
-use self::{fillers::SharedFiller, scope::Scope};
+use crate::parser;
 
-mod fillers;
-mod scope;
+use self::{
+    fillers::{Filler, Nothing, PonString, SharedFiller},
+    scope::{Action, ActionOrFiller, NamePart, Scope},
+};
+
+pub mod fillers;
+pub mod scope;
 
 #[must_use]
-enum Output {
+pub enum Output {
     Returned(SharedFiller),
     Thrown(SharedFiller),
     LastValue(SharedFiller),
 }
 
-pub fn execute(scope: &Arc<Scope>, program: &parser::Program) -> Output {
+impl Filler for Output {
+    fn content_to_string(&self) -> String {
+        match self {
+            Self::Thrown(filler) => format!("Thrown: {}", filler.to_string()),
+            Self::LastValue(filler) => format!("LastValue: {}", filler.to_string()),
+            Self::Returned(filler) => format!("Returned: {}", filler.to_string()),
+        }
+    }
+}
+
+pub fn error(content: String) -> Arc<dyn Filler> {
+    Arc::new(PonString { content })
+}
+
+pub fn execute(scope: &mut Scope, program: &parser::Program) -> Output {
     let mut last_value: SharedFiller = Arc::new(Nothing {});
     for name in &program.names {
         let mut args: Vec<SharedFiller> = Vec::new();
         let mut key = Vec::new();
         for part in &name.parts {
             match part {
-                parser::NamePart::Word(word) => key.push(NamePart::Word(word.clone())),
+                parser::NamePart::Word(word) => key.push(NamePart::Word(word.to_lowercase())),
                 parser::NamePart::String(string) => {
                     key.push(NamePart::Gap);
                     args.push(Arc::new(PonString {
                         content: string.clone(),
-                        context: Arc::clone(scope),
                     }))
                 }
                 parser::NamePart::Filler(filler) => {
@@ -37,33 +55,33 @@ pub fn execute(scope: &Arc<Scope>, program: &parser::Program) -> Output {
                 }
             }
         }
-        let mut scope = scope;
-        loop {
-            let values = scope.values.lock().unwrap();
-            if let Some(entity) = values.get(&key) {
-                match entity {
-                    Entity::Filler(filler) => last_value = Arc::clone(filler),
-                    Entity::Action(action) => {
-                        let handler = Arc::clone(&action.handler);
-                        drop(values);
-                        match handler(args, Arc::clone(scope)) {
+        match scope.find(&key) {
+            None => return Output::Thrown(error(format!("name {:?} not found", key))),
+            Some(action_or_filler) => match action_or_filler {
+                ActionOrFiller::Filler(filler) => last_value = Arc::clone(filler),
+                ActionOrFiller::Action(action) => match action {
+                    Action::Magic(action) => {
+                        let handler = Arc::clone(&action);
+                        drop(action_or_filler);
+                        match handler(scope, args) {
                             Output::Returned(filler) | Output::LastValue(filler) => {
                                 last_value = filler
                             }
                             output @ Output::Thrown(_) => return output,
                         };
                     }
-                }
-                break;
-            }
-            scope = match &scope.outer {
-                None => {
-                    return Output::Thrown(Arc::new(Error {
-                        content: format!("name {{{}}} not found", name_to_string(&key)),
-                    }))
-                }
-                Some(outer) => outer,
-            }
+                    Action::Returning(action) => {
+                        let handler = Arc::clone(&action);
+                        drop(action_or_filler);
+                        match handler(args) {
+                            Output::Returned(filler) | Output::LastValue(filler) => {
+                                last_value = filler
+                            }
+                            output @ Output::Thrown(_) => return output,
+                        };
+                    }
+                },
+            },
         }
     }
     Output::LastValue(last_value)

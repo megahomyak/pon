@@ -7,16 +7,10 @@ pub struct Filler {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum MeaningfulNamePart {
+pub enum NamePart {
     Word(String),
     String(String),
     Filler(Filler),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum NamePart {
-    Meaningful(MeaningfulNamePart),
-    Whitespace(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -369,7 +363,7 @@ mod filler {
     }
 }
 
-mod meaningful_name_part {
+mod name_part {
     use super::*;
 
     pub fn parse(rest: parco::PositionedString) -> ParsingResult<NamePart> {
@@ -445,28 +439,21 @@ mod meaningful_name_part {
 mod name {
     use super::*;
 
-    mod useless_whitespaces {
-        use super::*;
-
-        fn part(rest: parco::PositionedString) -> ParsingResult<char> {
-            parco::one_matching_part(rest, |c| c.is_whitespace() && c != '\n')
-        }
-
-        pub fn parse(rest: parco::PositionedString) -> ParsingResult<String> {
-            part(rest).and(|c| parco::collect_repeating(String::from(c), rest, |rest| part(*rest)))
+    fn skip_useless(mut s: parco::PositionedString) -> parco::PositionedString {
+        use parco::Input;
+        loop {
+            match s.take_one_part() {
+                Some((c, rest)) if c.is_whitespace() && c != '\n' => s = rest,
+                _ => return s,
+            }
         }
     }
 
     pub fn parse(rest: parco::PositionedString) -> ParsingResult<Name> {
-        meaningful_name_part::parse(rest)
+        name_part::parse(rest)
             .and(|part, rest| {
                 parco::collect_repeating(Vec::from([part]), rest, |rest| {
-                    meaningful_name_part::parse(*rest)
-                        .map(|name_part| NamePart::Meaningful(name_part))
-                        .or(|| {
-                            useless_whitespaces::parse(*rest)
-                                .map(|whitespaces| NamePart::Whitespace(whitespaces))
-                        })
+                    name_part::parse(skip_useless(*rest))
                 })
                 .norm()
             })
