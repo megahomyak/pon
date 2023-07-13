@@ -1,60 +1,119 @@
-use std::sync::{Arc, Mutex};
+#![feature(let_chains)]
 
-use crate::interpreter::{
-    error,
-    fillers::{Filler, Nothing, PonString},
-    scope::{NamePart, Scope},
-    Output,
-};
+use std::{collections::HashMap, sync::Arc};
 
-mod interpreter;
+use fillers::{Error, Filler, Nothing, PonString};
+
+mod actions;
+mod fillers;
 mod parser;
 
-fn main() {
-    let mut args = std::env::args();
-    args.next().unwrap();
-    let file_name = args.next().expect("pass the file name");
-    let mut built_in_names = Scope::new(None);
-    fn word(content: &str) -> NamePart {
-        NamePart::Word(content.to_owned())
-    }
-    use NamePart::Gap;
-    built_in_names.register_magic_action(
-        vec![word("name"), Gap, word("as"), Gap],
-        |scope, args| {
-            let mut args = args.into_iter();
-            let value = args.next().unwrap();
-            let name = args.next().unwrap();
-            let name = name.content_to_string();
-            let Ok(name) = parser::parse((&name[..]).into()).map_err(|_| ()).and_then(|program| {
-                let mut names = program.names.into_iter();
-                let name = names.next().ok_or(())?;
-                let mut words = vec![];
-                for part in name.parts {
-                    match part {
-                        parser::NamePart::Word(word) => words.push(NamePart::Word(word.to_lowercase())),
-                        _ => return Err(()),
+#[derive(PartialEq, Eq, Hash)]
+enum NamePart {
+    Gap,
+    Word(String),
+}
+
+enum Action {
+    Magic(Box<dyn Fn(*mut Scope, Vec<Arc<dyn Filler>>) -> Output>),
+    Returning(Box<dyn Fn(Vec<Arc<dyn Filler>>) -> Output>),
+}
+
+enum Entity {
+    Action(Action),
+    Filler(Arc<dyn Filler>),
+}
+
+struct Scope {
+    values: HashMap<Vec<NamePart>, Entity>,
+    outer: Option<*mut Scope>,
+}
+
+enum Output {
+    Returned(Arc<dyn Filler>),
+    LastValue(Arc<dyn Filler>),
+    Thrown(Arc<dyn Filler>),
+}
+
+fn error(text: String) -> Output {
+    Output::Thrown(Arc::new(Error { text }))
+}
+
+fn ok() -> Output {
+    Output::Returned(Arc::new(Nothing {}))
+}
+
+fn execute(scope: *mut Scope, program: &parser::Program) -> Output {
+    let mut last_value: Arc<dyn Filler> = Arc::new(Nothing {});
+    for name in &program.names {
+        let mut name_key = vec![];
+        let mut args: Vec<Arc<dyn Filler>> = vec![];
+        for part in &name.parts {
+            name_key.push(match part {
+                parser::NamePart::Word(word) => NamePart::Word(word.to_owned()),
+                parser::NamePart::Filler(filler) => {
+                    let mut scope = Scope {
+                        values: HashMap::new(),
+                        outer: Some(scope),
+                    };
+                    args.push(match execute(&mut scope, &filler.content) {
+                        output @ Output::Thrown(_) => return output,
+                        Output::Returned(filler) | Output::LastValue(filler) => filler,
+                    });
+                    NamePart::Gap
+                }
+                parser::NamePart::String(content) => {
+                    args.push(Arc::new(PonString {
+                        content: content.to_owned(),
+                    }));
+                    NamePart::Gap
+                }
+            })
+        }
+        let mut scope = scope;
+        last_value = loop {
+            if let Some(entity) = unsafe { std::ptr::read(scope) }.values.remove(&name_key) {
+                let last_value = match &entity {
+                    Entity::Action(Action::Magic(action)) => match action(scope, args) {
+                        output @ Output::Thrown(_) => return output,
+                        Output::Returned(filler) | Output::LastValue(filler) => filler,
+                    },
+                    Entity::Action(Action::Returning(action)) => match action(args) {
+                        output @ Output::Thrown(_) => return output,
+                        Output::Returned(filler) | Output::LastValue(filler) => filler,
+                    },
+                    Entity::Filler(filler) => Arc::clone(filler),
+                };
+                unsafe { std::ptr::read(scope) }
+                    .values
+                    .insert(name_key, entity);
+                break last_value;
+            } else {
+                match unsafe { std::ptr::read(scope) }.outer {
+                    None => {
+                        return error(format!("name not found"))
                     }
+                    Some(outer) => scope = outer,
                 }
-                match names.next() {
-                    Some(_next_name) => return Err(()),
-                    None => return Ok(words),
-                }
-            }) else {
-                return Output::Thrown(error(format!("invalid filler name {{{}}}", name)))
-            };
-            scope.register_filler(name, value);
-            Output::Returned(Arc::new(Nothing {}))
+            }
+        }
+    }
+    Output::LastValue(last_value)
+}
+
+fn main() {
+    let file_name = std::env::args().nth(1).expect("pass the file name");
+    let file_contents = std::fs::read_to_string(file_name).expect("couldn't read the program");
+    let program = parser::parse((&file_contents[..]).into()).expect("couldn't parse the program");
+    match execute(
+        &mut Scope {
+            outer: None,
+            values: actions::builtins(),
         },
-    );
-    built_in_names.register_magic_action(vec![word("print"), Gap], |_scope, args| {
-        println!("{}", args[0].content_to_string());
-        Output::Returned(Arc::new(Nothing {}))
-    });
-    let mut scope = Scope::new(Some(&mut built_in_names));
-    let program = parser::parse(
-        (&std::fs::read_to_string(file_name).expect("couldn't read your shit")[..]).into(),
-    )
-    .expect("couldn't parse your shit");
-    println!("{}", interpreter::execute(&mut scope, &program).to_string());
+        &program,
+    ) {
+        Output::LastValue(filler) => println!("Last value: {}", filler),
+        Output::Returned(filler) => println!("Returned: {}", filler),
+        Output::Thrown(filler) => println!("Thrown: {}", filler),
+    }
 }
