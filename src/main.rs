@@ -13,8 +13,8 @@ enum NamePart {
 }
 
 enum Action {
-    Magic(Box<dyn Fn(&mut Scope, Vec<Arc<dyn Filler>>) -> Output>),
-    Returning(Box<dyn Fn(Vec<Arc<dyn Filler>>) -> Output>),
+    Magic(Arc<dyn Fn(&mut Scope, Vec<Arc<dyn Filler>>) -> Output>),
+    Returning(Arc<dyn Fn(Vec<Arc<dyn Filler>>) -> Output>),
 }
 
 enum Entity {
@@ -72,10 +72,13 @@ fn execute(mut scope: Scope, program: &parser::Program) -> Output {
         last_value = loop {
             if let Some(entity) = scope.values.get(&name_key) {
                 let last_value = match &entity {
-                    Entity::Action(Action::Magic(action)) => match action(scope, args) {
-                        output @ Output::Thrown(_) => return output,
-                        Output::Returned(filler) | Output::LastValue(filler) => filler,
-                    },
+                    Entity::Action(Action::Magic(action)) => {
+                        let action = Arc::clone(action);
+                        match action(scope, args) {
+                            output @ Output::Thrown(_) => return output,
+                            Output::Returned(filler) | Output::LastValue(filler) => filler,
+                        }
+                    }
                     Entity::Action(Action::Returning(action)) => match action(args) {
                         output @ Output::Thrown(_) => return output,
                         Output::Returned(filler) | Output::LastValue(filler) => filler,

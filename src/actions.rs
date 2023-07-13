@@ -13,7 +13,7 @@ fn gap() -> NamePart {
 }
 
 fn magic<F: 'static + Fn(&mut Scope, Vec<Arc<dyn Filler>>) -> Output>(f: F) -> Entity {
-    Entity::Action(Action::Magic(Box::new(f)))
+    Entity::Action(Action::Magic(Arc::new(f)))
 }
 
 pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
