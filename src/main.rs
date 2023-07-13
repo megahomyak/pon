@@ -41,7 +41,7 @@ fn ok() -> Output {
     Output::Returned(Arc::new(Nothing {}))
 }
 
-fn execute(mut scope: Scope, program: &parser::Program) -> Output {
+fn execute<'a: 'b, 'b>(scope: &'a mut Scope<'b>, program: &parser::Program) -> Output {
     let mut last_value: Arc<dyn Filler> = Arc::new(Nothing {});
     for name in &program.names {
         let mut name_key = vec![];
@@ -50,11 +50,11 @@ fn execute(mut scope: Scope, program: &parser::Program) -> Output {
             name_key.push(match part {
                 parser::NamePart::Word(word) => NamePart::Word(word.to_owned()),
                 parser::NamePart::Filler(filler) => {
-                    let scope = Scope {
+                    let mut scope = Scope {
                         values: HashMap::new(),
-                        outer: Some(&mut scope),
+                        outer: Some(scope),
                     };
-                    args.push(match execute(scope, &filler.content) {
+                    args.push(match execute(&mut scope, &filler.content) {
                         output @ Output::Thrown(_) => return output,
                         Output::Returned(filler) | Output::LastValue(filler) => filler,
                     });
@@ -68,10 +68,10 @@ fn execute(mut scope: Scope, program: &parser::Program) -> Output {
                 }
             })
         }
-        let mut scope = &mut scope;
+        let mut scope = scope;
         last_value = loop {
             if let Some(entity) = scope.values.get(&name_key) {
-                let last_value = match &entity {
+                break match &entity {
                     Entity::Action(Action::Magic(action)) => {
                         let action = Arc::clone(action);
                         match action(scope, args) {
@@ -85,7 +85,6 @@ fn execute(mut scope: Scope, program: &parser::Program) -> Output {
                     },
                     Entity::Filler(filler) => Arc::clone(filler),
                 };
-                break last_value;
             } else {
                 match &mut scope.outer {
                     None => return error(format!("name not found")),
@@ -106,7 +105,7 @@ fn main() {
         values: actions::builtins(),
     };
     match execute(
-        Scope {
+        &mut Scope {
             outer: Some(&mut builtins),
             values: HashMap::new(),
         },
