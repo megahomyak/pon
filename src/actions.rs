@@ -12,7 +12,7 @@ fn gap() -> NamePart {
     NamePart::Gap
 }
 
-fn magic<F: 'static + Fn(*mut Scope, Vec<Arc<dyn Filler>>) -> Output>(f: F) -> Entity {
+fn magic<F: 'static + Fn(&mut Scope, Vec<Arc<dyn Filler>>) -> Output>(f: F) -> Entity {
     Entity::Action(Action::Magic(Box::new(f)))
 }
 
@@ -21,7 +21,7 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
     scope.insert(
         vec![word("print"), gap()],
         magic(|_scope, args| {
-            println!("{}", args[0].to_string());
+            println!("{}", args[0]);
             Output::Returned(Arc::new(Nothing {}))
         }),
     );
@@ -34,18 +34,18 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
             };
             if let Ok(program) = parser::parse((&name.content[..]).into())
                 && let mut names = program.names.into_iter()
-                    && let Some(name) = names.next()
-                    && let None = names.next()
-                    && let Some(parts) = name.parts.into_iter().map(|part| match part {
-                                parser::NamePart::Filler(_) | parser::NamePart::String(_) => None,
-                                parser::NamePart::Word(word) => Some(NamePart::Word(word)),
-                        }).collect()
-                    {
-                        unsafe { std::ptr::read(scope) }.values.insert(parts, Entity::Filler(value));
-                        ok()
-                    } else {
-                        error(format!("bad name"))
-                    }
+                && let Some(name) = names.next()
+                && let None = names.next()
+                && let Some(parts) = name.parts.into_iter().map(|part| match part {
+                        parser::NamePart::Filler(_) | parser::NamePart::String(_) => None,
+                        parser::NamePart::Word(word) => Some(NamePart::Word(word)),
+                    }).collect()
+                {
+                    scope.values.insert(parts, Entity::Filler(value));
+                    ok()
+                } else {
+                    error(format!("bad name"))
+                }
         }),
     );
     scope

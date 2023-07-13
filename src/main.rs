@@ -15,7 +15,7 @@ enum NamePart {
 }
 
 enum Action {
-    Magic(Box<dyn Fn(*mut Scope, Vec<Arc<dyn Filler>>) -> Output>),
+    Magic(Box<dyn Fn(&mut Scope, Vec<Arc<dyn Filler>>) -> Output>),
     Returning(Box<dyn Fn(Vec<Arc<dyn Filler>>) -> Output>),
 }
 
@@ -24,9 +24,9 @@ enum Entity {
     Filler(Arc<dyn Filler>),
 }
 
-struct Scope {
+struct Scope<'a> {
     values: HashMap<Vec<NamePart>, Entity>,
-    outer: Option<*mut Scope>,
+    outer: Option<&'a mut Scope<'a>>,
 }
 
 enum Output {
@@ -43,7 +43,7 @@ fn ok() -> Output {
     Output::Returned(Arc::new(Nothing {}))
 }
 
-fn execute(scope: *mut Scope, program: &parser::Program) -> Output {
+fn execute(scope: Scope, program: &parser::Program) -> Output {
     let mut last_value: Arc<dyn Filler> = Arc::new(Nothing {});
     for name in &program.names {
         let mut name_key = vec![];
@@ -52,14 +52,15 @@ fn execute(scope: *mut Scope, program: &parser::Program) -> Output {
             name_key.push(match part {
                 parser::NamePart::Word(word) => NamePart::Word(word.to_owned()),
                 parser::NamePart::Filler(filler) => {
-                    let mut scope = Scope {
+                    let scope = Scope {
                         values: HashMap::new(),
-                        outer: Some(scope),
+                        outer: Some(&mut scope),
                     };
-                    args.push(match execute(&mut scope, &filler.content) {
+                    args.push(match execute(scope, &filler.content) {
                         output @ Output::Thrown(_) => return output,
                         Output::Returned(filler) | Output::LastValue(filler) => filler,
                     });
+                    drop(scope);
                     NamePart::Gap
                 }
                 parser::NamePart::String(content) => {
@@ -70,9 +71,9 @@ fn execute(scope: *mut Scope, program: &parser::Program) -> Output {
                 }
             })
         }
-        let mut scope = scope;
+        let mut scope = &mut scope;
         last_value = loop {
-            if let Some(entity) = unsafe { std::ptr::read(scope) }.values.remove(&name_key) {
+            if let Some(entity) = scope.values.get(&name_key) {
                 let last_value = match &entity {
                     Entity::Action(Action::Magic(action)) => match action(scope, args) {
                         output @ Output::Thrown(_) => return output,
@@ -84,15 +85,10 @@ fn execute(scope: *mut Scope, program: &parser::Program) -> Output {
                     },
                     Entity::Filler(filler) => Arc::clone(filler),
                 };
-                unsafe { std::ptr::read(scope) }
-                    .values
-                    .insert(name_key, entity);
                 break last_value;
             } else {
-                match unsafe { std::ptr::read(scope) }.outer {
-                    None => {
-                        return error(format!("name not found"))
-                    }
+                match &mut scope.outer {
+                    None => return error(format!("name not found")),
                     Some(outer) => scope = outer,
                 }
             }
@@ -105,10 +101,14 @@ fn main() {
     let file_name = std::env::args().nth(1).expect("pass the file name");
     let file_contents = std::fs::read_to_string(file_name).expect("couldn't read the program");
     let program = parser::parse((&file_contents[..]).into()).expect("couldn't parse the program");
+    let mut builtins = Scope {
+        outer: None,
+        values: actions::builtins(),
+    };
     match execute(
-        &mut Scope {
-            outer: None,
-            values: actions::builtins(),
+        Scope {
+            outer: Some(&mut builtins),
+            values: HashMap::new(),
         },
         &program,
     ) {
