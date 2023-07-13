@@ -41,7 +41,7 @@ fn ok() -> Output {
     Output::Returned(Arc::new(Nothing {}))
 }
 
-fn execute<'a: 'b, 'b>(scope: &'a mut Scope<'b>, program: &parser::Program) -> Output {
+fn execute<'a>(scope: &mut Scope<'a>, program: &parser::Program) -> Output {
     let mut last_value: Arc<dyn Filler> = Arc::new(Nothing {});
     for name in &program.names {
         let mut name_key = vec![];
