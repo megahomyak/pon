@@ -41,7 +41,7 @@ fn ok() -> Output {
     Output::Returned(Arc::new(Nothing {}))
 }
 
-fn execute(scope: Scope, program: &parser::Program) -> Output {
+fn execute(mut scope: Scope, program: &parser::Program) -> Output {
     let mut last_value: Arc<dyn Filler> = Arc::new(Nothing {});
     for name in &program.names {
         let mut name_key = vec![];
@@ -58,7 +58,6 @@ fn execute(scope: Scope, program: &parser::Program) -> Output {
                         output @ Output::Thrown(_) => return output,
                         Output::Returned(filler) | Output::LastValue(filler) => filler,
                     });
-                    drop(scope);
                     NamePart::Gap
                 }
                 parser::NamePart::String(content) => {
