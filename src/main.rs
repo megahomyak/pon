@@ -1,5 +1,3 @@
-#![feature(let_chains)]
-
 use std::{collections::HashMap, sync::Arc};
 
 use fillers::{Error, Filler, Nothing, PonString};

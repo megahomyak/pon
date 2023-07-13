@@ -32,20 +32,26 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
             let Some(name) = name.downcast_ref::<PonString>() else {
                 return error(format!("the name is not a string"));
             };
-            if let Ok(program) = parser::parse((&name.content[..]).into())
-                && let mut names = program.names.into_iter()
-                && let Some(name) = names.next()
-                && let None = names.next()
-                && let Some(parts) = name.parts.into_iter().map(|part| match part {
+            match (|| {
+                let mut names = parser::parse((&name.content[..]).into())
+                    .ok()?
+                    .names
+                    .into_iter();
+                let (Some(name), None) = (names.next(), names.next()) else { return None; };
+                name.parts
+                    .into_iter()
+                    .map(|part| match part {
                         parser::NamePart::Filler(_) | parser::NamePart::String(_) => None,
                         parser::NamePart::Word(word) => Some(NamePart::Word(word)),
-                    }).collect()
-                {
+                    })
+                    .collect()
+            })() {
+                None => error(format!("bad name")),
+                Some(parts) => {
                     scope.values.insert(parts, Entity::Filler(value));
                     ok()
-                } else {
-                    error(format!("bad name"))
                 }
+            }
         }),
     );
     scope
