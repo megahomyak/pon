@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use fillers::{Error, Filler, Nothing, PonString};
 
@@ -13,7 +16,7 @@ enum NamePart {
 }
 
 enum Action {
-    Magic(Arc<dyn Fn(&mut Scope, Vec<Arc<dyn Filler>>) -> Output>),
+    Magic(Arc<dyn Fn(&mut Arc<Mutex<Scope>>, Vec<Arc<dyn Filler>>) -> Output>),
     Returning(Arc<dyn Fn(Vec<Arc<dyn Filler>>) -> Output>),
 }
 
@@ -22,9 +25,9 @@ enum Entity {
     Filler(Arc<dyn Filler>),
 }
 
-struct Scope<'a> {
+struct Scope {
     values: HashMap<Vec<NamePart>, Entity>,
-    outer: Option<&'a mut Scope<'a>>,
+    outer: Option<Arc<Mutex<Scope>>>,
 }
 
 enum Output {
@@ -41,7 +44,7 @@ fn ok() -> Output {
     Output::Returned(Arc::new(Nothing {}))
 }
 
-fn execute<'a>(scope: &mut Scope<'a>, program: &parser::Program) -> Output {
+fn execute(scope: &mut Arc<Mutex<Scope>>, program: &parser::Program) -> Output {
     let mut last_value: Arc<dyn Filler> = Arc::new(Nothing {});
     for name in &program.names {
         let mut name_key = vec![];
@@ -50,10 +53,10 @@ fn execute<'a>(scope: &mut Scope<'a>, program: &parser::Program) -> Output {
             name_key.push(match part {
                 parser::NamePart::Word(word) => NamePart::Word(word.to_owned()),
                 parser::NamePart::Filler(filler) => {
-                    let mut scope = Scope {
+                    let mut scope = Arc::new(Mutex::new(Scope {
                         values: HashMap::new(),
-                        outer: Some(scope),
-                    };
+                        outer: Some(Arc::clone(&scope)),
+                    }));
                     args.push(match execute(&mut scope, &filler.content) {
                         output @ Output::Thrown(_) => return output,
                         Output::Returned(filler) | Output::LastValue(filler) => filler,
@@ -68,13 +71,15 @@ fn execute<'a>(scope: &mut Scope<'a>, program: &parser::Program) -> Output {
                 }
             })
         }
-        let mut scope = scope;
+        let mut scope = Arc::clone(scope);
         last_value = loop {
-            if let Some(entity) = scope.values.get(&name_key) {
+            let scope_guard = scope.lock().unwrap();
+            if let Some(entity) = scope_guard.values.get(&name_key) {
                 break match &entity {
                     Entity::Action(Action::Magic(action)) => {
                         let action = Arc::clone(action);
-                        match action(scope, args) {
+                        drop(scope_guard);
+                        match action(&mut scope, args) {
                             output @ Output::Thrown(_) => return output,
                             Output::Returned(filler) | Output::LastValue(filler) => filler,
                         }
@@ -86,9 +91,13 @@ fn execute<'a>(scope: &mut Scope<'a>, program: &parser::Program) -> Output {
                     Entity::Filler(filler) => Arc::clone(filler),
                 };
             } else {
-                match &mut scope.outer {
+                match &scope_guard.outer {
                     None => return error(format!("name not found")),
-                    Some(outer) => scope = outer,
+                    Some(outer) => {
+                        let outer = Arc::clone(outer);
+                        drop(scope_guard);
+                        scope = outer
+                    }
                 }
             }
         }
@@ -100,15 +109,15 @@ fn main() {
     let file_name = std::env::args().nth(1).expect("pass the file name");
     let file_contents = std::fs::read_to_string(file_name).expect("couldn't read the program");
     let program = parser::parse((&file_contents[..]).into()).expect("couldn't parse the program");
-    let mut builtins = Scope {
+    let builtins = Arc::new(Mutex::new(Scope {
         outer: None,
         values: actions::builtins(),
-    };
+    }));
     match execute(
-        &mut Scope {
-            outer: Some(&mut builtins),
+        &mut Arc::new(Mutex::new(Scope {
+            outer: Some(builtins),
             values: HashMap::new(),
-        },
+        })),
         &program,
     ) {
         Output::LastValue(filler) => println!("Last value: {}", filler),

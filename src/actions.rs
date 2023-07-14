@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     error, ok, parser, Action, Entity, Filler, NamePart, Nothing, Output, PonString, Scope,
@@ -12,7 +15,7 @@ fn gap() -> NamePart {
     NamePart::Gap
 }
 
-fn magic<F: 'static + Fn(&mut Scope, Vec<Arc<dyn Filler>>) -> Output>(f: F) -> Entity {
+fn magic<F: 'static + Fn(&mut Arc<Mutex<Scope>>, Vec<Arc<dyn Filler>>) -> Output>(f: F) -> Entity {
     Entity::Action(Action::Magic(Arc::new(f)))
 }
 
@@ -48,7 +51,11 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
             })() {
                 None => error(format!("bad name")),
                 Some(parts) => {
-                    scope.values.insert(parts, Entity::Filler(value));
+                    scope
+                        .lock()
+                        .unwrap()
+                        .values
+                        .insert(parts, Entity::Filler(value));
                     ok()
                 }
             }
