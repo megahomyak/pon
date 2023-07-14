@@ -45,7 +45,7 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
                     .into_iter()
                     .map(|part| match part {
                         parser::NamePart::Filler(_) | parser::NamePart::String(_) => None,
-                        parser::NamePart::Word(word) => Some(NamePart::Word(word)),
+                        parser::NamePart::Word(word) => Some(NamePart::Word(word.to_lowercase())),
                     })
                     .collect()
             })() {

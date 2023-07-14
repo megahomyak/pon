@@ -44,20 +44,20 @@ fn ok() -> Output {
     Output::Returned(Arc::new(Nothing {}))
 }
 
-fn execute(scope: &mut Arc<Mutex<Scope>>, program: &parser::Program) -> Output {
+fn execute(scope: &mut Arc<Mutex<Scope>>, program: parser::Program) -> Output {
     let mut last_value: Arc<dyn Filler> = Arc::new(Nothing {});
-    for name in &program.names {
+    for name in program.names {
         let mut name_key = vec![];
         let mut args: Vec<Arc<dyn Filler>> = vec![];
-        for part in &name.parts {
+        for part in name.parts {
             name_key.push(match part {
-                parser::NamePart::Word(word) => NamePart::Word(word.to_owned()),
+                parser::NamePart::Word(word) => NamePart::Word(word.to_lowercase()),
                 parser::NamePart::Filler(filler) => {
                     let mut scope = Arc::new(Mutex::new(Scope {
                         values: HashMap::new(),
                         outer: Some(Arc::clone(&scope)),
                     }));
-                    args.push(match execute(&mut scope, &filler.content) {
+                    args.push(match execute(&mut scope, filler.content) {
                         output @ Output::Thrown(_) => return output,
                         Output::Returned(filler) | Output::LastValue(filler) => filler,
                     });
@@ -118,7 +118,7 @@ fn main() {
             outer: Some(builtins),
             values: HashMap::new(),
         })),
-        &program,
+        program,
     ) {
         Output::LastValue(filler) => println!("Last value: {}", filler),
         Output::Returned(filler) => println!("Returned: {}", filler),
