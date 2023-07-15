@@ -44,7 +44,7 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
                 name.parts
                     .into_iter()
                     .map(|part| match part {
-                        parser::NamePart::Filler(_) | parser::NamePart::String(_) => None,
+                        parser::NamePart::Filler(_) | parser::NamePart::String(_) | parser::NamePart::Comment(_) => None,
                         parser::NamePart::Word(word) => Some(NamePart::Word(word.to_lowercase())),
                     })
                     .collect()
@@ -61,11 +61,28 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
             }
         }),
     );
-    scope.insert(vec![word("if"), gap(), word(","), word("then"), gap()], magic(|scope, args| {
-        let [condition, block] = <[_; 2]>::try_from(args).unwrap_or_else(|_| unreachable!());
-        if condition.bool() {
-            block.downcast_ref::<PonString>()
-        }
-    }));
+    scope.insert(
+        vec![word("if"), gap(), word(","), word("then"), gap()],
+        magic(|scope, args| {
+            let [condition, branch] = <[_; 2]>::try_from(args).unwrap_or_else(|_| unreachable!());
+            if condition.bool() {
+                let Some(branch) = branch.downcast_ref::<PonString>() else {
+                return error(format!("the branch is not a string"));
+            };
+                let mut scope = Arc::new(Mutex::new(Scope {
+                    outer: Some(Arc::clone(scope)),
+                    values: HashMap::new(),
+                }));
+                let Ok(program) = parser::parse((&branch.content[..]).into()) else {
+                return error(format!("couldn't parse the branch as a program"));
+            };
+                match crate::execute(&mut scope, program) {
+                    output @ Output::Thrown(_) => return output,
+                    Output::Returned(_) | Output::LastValue(_) => (),
+                }
+            }
+            ok()
+        }),
+    );
     scope
 }

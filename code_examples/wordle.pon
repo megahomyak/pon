@@ -1,1 +1,3 @@
-print {Welcome to Wordle! Wordle}
+| Guess -> match in dict -> 
+
+print {Welcome to Wordle! Wordle is a game about guessing words.}
