@@ -61,5 +61,11 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
             }
         }),
     );
+    scope.insert(vec![word("if"), gap(), word(","), word("then"), gap()], magic(|scope, args| {
+        let [condition, block] = <[_; 2]>::try_from(args).unwrap_or_else(|_| unreachable!());
+        if condition.bool() {
+            block.downcast_ref::<PonString>()
+        }
+    }));
     scope
 }
