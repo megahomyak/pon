@@ -46,7 +46,8 @@ fn ok() -> Output {
 
 fn execute(scope: &mut Arc<Mutex<Scope>>, program: parser::Program) -> Output {
     let mut last_value: Arc<dyn Filler> = Arc::new(Nothing {});
-    for name in program.names {
+    for program_part in program.parts {
+        let parser::ProgramPart::Name(name) = program_part else { continue; };
         let mut name_key = vec![];
         let mut args: Vec<Arc<dyn Filler>> = vec![];
         for part in name.parts {

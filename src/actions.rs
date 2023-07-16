@@ -38,13 +38,14 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
             match (|| {
                 let mut names = parser::parse((&name.content[..]).into())
                     .ok()?
-                    .names
+                    .parts
                     .into_iter();
-                let (Some(name), None) = (names.next(), names.next()) else { return None; };
+                let (Some(program_part), None) = (names.next(), names.next()) else { return None; };
+                let parser::ProgramPart::Name(name) = program_part else { return None; };
                 name.parts
                     .into_iter()
                     .map(|part| match part {
-                        parser::NamePart::Filler(_) | parser::NamePart::String(_) | parser::NamePart::Comment(_) => None,
+                        parser::NamePart::Filler(_) | parser::NamePart::String(_) => None,
                         parser::NamePart::Word(word) => Some(NamePart::Word(word.to_lowercase())),
                     })
                     .collect()

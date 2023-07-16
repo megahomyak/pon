@@ -1,40 +1,6 @@
 type ParsingResult<'a, T> = parco::Result<T, parco::PositionedString<'a>, Error>;
 type CollResult<'a, T> = parco::CollResult<T, parco::PositionedString<'a>, Error>;
 
-mod filled {
-    use std::marker::PhantomData;
-
-    #[derive(PartialEq, Eq, Debug)]
-    pub struct Filled<C, T> {
-        collection: C,
-        _item: PhantomData<T>,
-    }
-
-    impl<C: FromIterator<T>, T> Filled<C, T> {
-        pub fn new(first: T) -> Self {
-            Self {
-                collection: FromIterator::from_iter(std::iter::once(first)),
-                _item: PhantomData,
-            }
-        }
-
-        pub fn inner(&self) -> &C {
-            &self.collection
-        }
-
-        pub fn into_inner(self) -> C {
-            self.collection
-        }
-    }
-
-    impl<C: FromIterator<T> + Extend<T>, T> Extend<T> for Filled<C, T> {
-        fn extend<C2: IntoIterator<Item = T>>(&mut self, iter: C2) {
-            Extend::extend(&mut self.collection, iter)
-        }
-    }
-}
-use filled::Filled;
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct Filler {
     pub content: Program,
@@ -42,14 +8,14 @@ pub struct Filler {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum NamePart {
-    Word(Filled<String, char>),
+    Word(String),
     String(String),
     Filler(Filler),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Name {
-    pub parts: Filled<Vec<NamePart>, NamePart>,
+    pub parts: Vec<NamePart>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -60,7 +26,7 @@ pub enum ProgramPart {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Program {
-    pub names: Vec<ProgramPart>,
+    pub parts: Vec<ProgramPart>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -395,7 +361,7 @@ mod filler {
                 ParsingResult::Ok(
                     Filler {
                         content: Program {
-                            names: vec![ProgramPart::Name(Name {
+                            parts: vec![ProgramPart::Name(Name {
                                 parts: vec![NamePart::Word("abc".to_owned())]
                             })]
                         }
@@ -443,7 +409,7 @@ mod name_part {
                 parse(parco::PositionedString::from("() rest")),
                 ParsingResult::Ok(
                     NamePart::Filler(Filler {
-                        content: Program { names: vec![] }
+                        content: Program { parts: vec![] }
                     }),
                     parco::PositionedString {
                         content: " rest",
@@ -565,28 +531,8 @@ mod name {
                 })
                 .norm()
             })
-            .and(|parts, rest| {
-                comment::parse(rest)
-                    .map(|comment| Name::Commented {
-                        comment,
-                        parts: Some(shrink_vec(parts)),
-                    })
-                    .or(|| {
-                        ParsingResult::Ok(
-                            Name::NotCommented {
-                                parts: shrink_vec(parts),
-                            },
-                            rest,
-                        )
-                    })
-            })
-            .or(|| {
-                comment::parse(rest).map(|comment| {
-                    ParsingResult::Ok(Name::Commented {
-                        parts: None,
-                        comment,
-                    })
-                })
+            .map(|parts| Name {
+                parts: shrink_vec(parts),
             })
     }
 
@@ -612,10 +558,10 @@ mod name {
             assert_eq!(
                 parse(parco::PositionedString::from("()   blah  \nrest")),
                 ParsingResult::Ok(
-                    Name::NotCommented {
+                    Name {
                         parts: vec![
                             NamePart::Filler(Filler {
-                                content: Program { names: vec![] }
+                                content: Program { parts: vec![] }
                             }),
                             NamePart::Word("blah".to_owned())
                         ],
@@ -631,11 +577,10 @@ mod name {
         #[test]
         fn correct_2() {
             assert_eq!(
-                parse(parco::PositionedString::from("{\n}|blah  \nrest")),
+                parse(parco::PositionedString::from("{\n}\nrest")),
                 ParsingResult::Ok(
-                    Name::Commented {
+                    Name {
                         parts: vec![NamePart::String("\n".to_owned())],
-                        comment: Some("blah  ".into())
                     },
                     parco::PositionedString {
                         content: "\nrest",
@@ -647,15 +592,26 @@ mod name {
     }
 }
 
+mod program_part {
+    use super::*;
+
+    pub fn parse(rest: parco::PositionedString) -> ParsingResult<ProgramPart> {
+        comment::parse(rest)
+            .map(|comment| ProgramPart::Comment(comment))
+            .or(|| name::parse(rest).map(|name| ProgramPart::Name(name)))
+    }
+}
+
 mod program {
     use super::*;
 
     pub fn parse(rest: parco::PositionedString) -> CollResult<Program> {
-        parco::collect_repeating(Vec::new(), rest, |rest| name::parse(skip_whitespace(*rest))).map(
-            |action_invocations| Program {
-                names: shrink_vec(action_invocations),
-            },
-        )
+        parco::collect_repeating(Vec::new(), rest, |rest| {
+            program_part::parse(skip_whitespace(*rest))
+        })
+        .map(|names| Program {
+            parts: shrink_vec(names),
+        })
     }
 
     #[cfg(test)]
@@ -667,7 +623,7 @@ mod program {
             assert_eq!(
                 parse(parco::PositionedString::from("")),
                 CollResult::Ok(
-                    Program { names: vec![] },
+                    Program { parts: vec![] },
                     parco::PositionedString {
                         content: "",
                         position: parco::Position { row: 1, column: 1 }
@@ -681,7 +637,7 @@ mod program {
             assert_eq!(
                 parse(parco::PositionedString::from("\n\t  ")),
                 CollResult::Ok(
-                    Program { names: vec![] },
+                    Program { parts: vec![] },
                     parco::PositionedString {
                         content: "\n\t  ",
                         position: parco::Position { row: 1, column: 1 }
@@ -698,17 +654,17 @@ mod program {
                 )),
                 CollResult::Ok(
                     Program {
-                        names: vec![
-                            Name {
+                        parts: vec![
+                            ProgramPart::Name(Name {
                                 parts: vec![NamePart::Word("one".to_owned())]
-                            },
-                            Name {
+                            }),
+                            ProgramPart::Name(Name {
                                 parts: vec![NamePart::Word("two".to_owned())]
-                            },
-                            Name {
+                            }),
+                            ProgramPart::Comment(" blah ".into()),
+                            ProgramPart::Name(Name {
                                 parts: vec![NamePart::Word("three".to_owned())],
-                                comment: None,
-                            },
+                            }),
                         ]
                     },
                     parco::PositionedString {
@@ -725,9 +681,9 @@ mod program {
                 parse(parco::PositionedString::from("blah}")),
                 CollResult::Ok(
                     Program {
-                        names: vec![Name {
+                        parts: vec![ProgramPart::Name(Name {
                             parts: vec![NamePart::Word("blah".to_owned())]
-                        }]
+                        })]
                     },
                     parco::PositionedString {
                         content: "}",
@@ -743,9 +699,9 @@ mod program {
                 parse(parco::PositionedString::from("blah)")),
                 CollResult::Ok(
                     Program {
-                        names: vec![Name {
+                        parts: vec![ProgramPart::Name(Name {
                             parts: vec![NamePart::Word("blah".to_owned())]
-                        }]
+                        })]
                     },
                     parco::PositionedString {
                         content: ")",
@@ -760,7 +716,7 @@ mod program {
             assert_eq!(
                 parse(parco::PositionedString::from(")")),
                 CollResult::Ok(
-                    Program { names: vec![] },
+                    Program { parts: vec![] },
                     parco::PositionedString {
                         content: ")",
                         position: parco::Position { row: 1, column: 1 }
@@ -804,7 +760,7 @@ mod complete_program {
         fn nothing() {
             assert_eq!(
                 parse(parco::PositionedString::from("")),
-                Ok(Program { names: vec![] }),
+                Ok(Program { parts: vec![] }),
             );
         }
 
@@ -812,25 +768,29 @@ mod complete_program {
         fn whitespace() {
             assert_eq!(
                 parse(parco::PositionedString::from("\n\t  ")),
-                Ok(Program { names: vec![] }),
+                Ok(Program { parts: vec![] }),
             );
         }
 
         #[test]
         fn filled() {
             assert_eq!(
-                parse(parco::PositionedString::from("one \n two \n three \n\t")),
+                parse(parco::PositionedString::from(
+                    "one \n two | blah1 \n|blah2\n three \n\t"
+                )),
                 Ok(Program {
-                    names: vec![
-                        Name {
+                    parts: vec![
+                        ProgramPart::Name(Name {
                             parts: vec![NamePart::Word("one".to_owned())]
-                        },
-                        Name {
+                        }),
+                        ProgramPart::Name(Name {
                             parts: vec![NamePart::Word("two".to_owned())]
-                        },
-                        Name {
+                        }),
+                        ProgramPart::Comment(" blah1 ".into()),
+                        ProgramPart::Comment("blah2".into()),
+                        ProgramPart::Name(Name {
                             parts: vec![NamePart::Word("three".to_owned())]
-                        },
+                        }),
                     ]
                 }),
             );
