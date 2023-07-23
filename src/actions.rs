@@ -75,8 +75,8 @@ pub(crate) fn builtins() -> HashMap<Vec<NamePart>, Entity> {
                     values: HashMap::new(),
                 }));
                 let Ok(program) = parser::parse((&branch.content[..]).into()) else {
-                return error(format!("couldn't parse the branch as a program"));
-            };
+                    return error(format!("couldn't parse the branch as a program"));
+                };
                 match crate::execute(&mut scope, program) {
                     output @ Output::Thrown(_) => return output,
                     Output::Returned(_) | Output::LastValue(_) => (),
