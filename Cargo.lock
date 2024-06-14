@@ -3,21 +3,5 @@
 version = 3
 
 [[package]]
-name = "downcast-rs"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
-
-[[package]]
-name = "parco"
-version = "5.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1cf2334a793fb8c38948763a3dab2df034ee0753045c04e5722526def297c7c"
-
-[[package]]
 name = "pon"
 version = "0.1.0"
-dependencies = [
- "downcast-rs",
- "parco",
-]
