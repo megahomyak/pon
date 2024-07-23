@@ -11,7 +11,6 @@ Currently, the project is in its alpha stages. I have a vision for it an a compl
 * Be powerful
 * Be simple
 * Be pragmatic
-* Be good, not perfect
 
 ## Discussion spaces
 
