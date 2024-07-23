@@ -1,122 +1,141 @@
-struct S<'a> {
-    idx: usize,
-    s: &'a str,
-}
-impl S<'_> {
-    fn next(&mut self) -> Option<char> {
-        unsafe { self.s.get_unchecked(self.idx..) }
-            .chars()
-            .next()
-            .inspect(|c| self.idx += c.len_utf8())
+mod s {
+    pub struct S<'a> {
+        idx: usize,
+        s: &'a str,
+    }
+    impl<'a> S<'a> {
+        pub fn new(s: &'a str) -> Self {
+            Self { s, idx: 0 }
+        }
+        pub fn next(&mut self) -> Option<char> {
+            unsafe { self.s.get_unchecked(self.idx..) }
+                .chars()
+                .next()
+                .inspect(|c| self.idx += c.len_utf8())
+        }
+        pub fn s(&self) -> &str {
+            self.s
+        }
+        pub fn idx(&self) -> usize {
+            self.idx
+        }
     }
 }
+use s::S;
 
-pub enum WordChar {
+struct Whitespace(char);
+struct Semicolon(char);
+struct OpeningParen(char);
+struct ClosingParen(char);
+
+struct WordChar(char);
+enum WordCharParsingResult {
     // Success
-    Valid { c: char },
+    Valid(WordChar),
     // Unexpected input
-    Whitespace { c: char },
-    Semicolon { c: char },
-    OpeningParen { c: char },
-    ClosingParen { c: char },
+    Whitespace(Whitespace),
+    Semicolon(Semicolon),
+    OpeningParen(OpeningParen),
+    ClosingParen(ClosingParen),
+    // Invalid input
+    EscapeAtEnd(),
+    Nothing(),
+}
+fn parse_word_char(s: &mut S) -> WordCharParsingResult {
+    use WordCharParsingResult as O;
+    match s.next() {
+        None => O::Nothing(),
+        Some(c @ ';') => O::Semicolon(Semicolon(c)),
+        Some(c @ '(') => O::OpeningParen(OpeningParen(c)),
+        Some(c @ ')') => O::ClosingParen(ClosingParen(c)),
+        Some('\\') => match s.next() {
+            None => O::EscapeAtEnd(),
+            Some(c) => O::Valid(WordChar(c)),
+        },
+        Some(c) if c.is_whitespace() => O::Whitespace(Whitespace(c)),
+        Some(c) => O::Valid(WordChar(c)),
+    }
+}
+
+struct Word(Vec<WordChar>);
+enum WordParsingResult {
+    // Unexpected input
+    Whitespace(Whitespace, Word),
+    Semicolon(Semicolon, Word),
+    OpeningParen(OpeningParen, Word),
+    ClosingParen(ClosingParen, Word),
+    Nothing(Word),
     // Invalid input
     EscapeAtEnd,
-    Nothing,
 }
-impl WordChar {
-    pub fn parse(s: &mut S) -> Self {
-        match s.next() {
-            None => Self::Nothing,
-            Some(c @ ';') => Self::Semicolon { c },
-            Some(c @ '(') => Self::OpeningParen { c },
-            Some(c @ ')') => Self::ClosingParen { c },
-            Some('\\') => match s.next() {
-                None => Self::EscapeAtEnd,
-                Some(c) => Self::Valid { c },
-            },
-            Some(c) if c.is_whitespace() => Self::Whitespace { c },
-            Some(c) => Self::Valid { c },
+fn parse_word(s: &mut S) -> WordParsingResult {
+    use WordCharParsingResult as I;
+    use WordParsingResult as O;
+    let mut word = Vec::new();
+    loop {
+        match parse_word_char(s) {
+            I::Nothing() => return O::Nothing(Word(word)),
+            I::EscapeAtEnd() => return O::EscapeAtEnd,
+            I::Valid(c) => word.push(c),
+            I::Semicolon(c) => return O::Semicolon(c, Word(word)),
+            I::OpeningParen(c) => return O::OpeningParen(c, Word(word)),
+            I::Whitespace(c) => return O::Whitespace(c, Word(word)),
+            I::ClosingParen(c) => return O::ClosingParen(c, Word(word)),
         }
     }
 }
 
-pub enum Word {
+struct Name(Vec<Word>);
+enum NameParsingResult {
     // Unexpected input
-    Whitespace { c: char, content: String },
-    Semicolon { c: char, content: String },
-    OpeningParen { c: char, content: String },
-    ClosingParen { c: char, content: String },
-    Nothing { content: String },
+    Semicolon(Semicolon, Name),
+    OpeningParen(OpeningParen, Name),
+    ClosingParen(ClosingParen, Name),
+    Nothing(Name),
     // Invalid input
     EscapeAtEnd,
 }
-impl Word {
-    pub fn parse(s: &mut S) -> Self {
-        let mut content = String::new();
-        loop {
-            match WordChar::parse(s) {
-                WordChar::Nothing => return Self::Nothing { content },
-                WordChar::EscapeAtEnd => return Self::EscapeAtEnd,
-                WordChar::Valid { c } => content.push(c),
-                WordChar::Semicolon { c } => return Self::Semicolon { c, content },
-                WordChar::OpeningParen { c } => return Self::OpeningParen { c, content },
-                WordChar::Whitespace { c } => return Self::Whitespace { c, content },
-                WordChar::ClosingParen { c } => return Self::ClosingParen { c, content },
+fn parse_name(s: &mut S) -> NameParsingResult {
+    use WordParsingResult as I;
+    use NameParsingResult as O;
+    let mut words = Vec::new();
+    loop {
+        match parse_word(s) {
+            I::EscapeAtEnd => return O::EscapeAtEnd,
+            I::Nothing(w) => {
+                if !w.is_empty() {
+                    words.push(w);
+                }
+                return O::Nothing(words);
+            }
+            I::ClosingParen(c, w) => {
+                if !w.is_empty() {
+                    words.push(w);
+                }
+                return Self::ClosingParen(c, words);
+            }
+            I::OpeningParen(c, w) => {
+                if !w.is_empty() {
+                    words.push(w);
+                }
+                return Self::OpeningParen(c, words);
+            }
+            I::Semicolon(c, w) => {
+                if !w.is_empty() {
+                    words.push(w);
+                }
+                return Self::Semicolon(c, words);
+            }
+            I::Whitespace(_c, w) => {
+                if !w.is_empty() {
+                    words.push(w);
+                }
             }
         }
     }
 }
 
-pub enum Name {
-    // Unexpected input
-    Semicolon(char, Vec<String>),
-    OpeningParen(char, Vec<String>),
-    ClosingParen(char, Vec<String>),
-    Nothing(Vec<String>),
-    // Invalid input
-    EscapeAtEnd,
-}
-impl Name {
-    pub fn parse(s: &mut S) -> Self {
-        let mut words = Vec::new();
-        loop {
-            match Word::parse(s) {
-                Word::EscapeAtEnd => return Self::EscapeAtEnd,
-                Word::Nothing { content } => {
-                    if !content.is_empty() {
-                        words.push(content);
-                    }
-                    return Self::Nothing(words);
-                }
-                Word::ClosingParen(c, w) => {
-                    if !w.is_empty() {
-                        words.push(w);
-                    }
-                    return Self::ClosingParen(c, words);
-                }
-                Word::OpeningParen(c, w) => {
-                    if !w.is_empty() {
-                        words.push(w);
-                    }
-                    return Self::OpeningParen(c, words);
-                }
-                Word::Semicolon(c, w) => {
-                    if !w.is_empty() {
-                        words.push(w);
-                    }
-                    return Self::Semicolon(c, words);
-                }
-                Word::Whitespace(_c, w) => {
-                    if !w.is_empty() {
-                        words.push(w);
-                    }
-                }
-            }
-        }
-    }
-}
-
-pub enum InputChar {
+enum InputChar {
     // Success
     Valid(char),
     ValidEscaped(char, char),
@@ -128,7 +147,7 @@ pub enum InputChar {
     Nothing,
 }
 impl InputChar {
-    pub fn parse(s: &mut S) -> Self {
+    fn parse(s: &mut S) -> Self {
         match s.next() {
             None => Self::Nothing,
             Some(c @ '(') => Self::OpeningParen(c),
@@ -142,7 +161,7 @@ impl InputChar {
     }
 }
 
-pub enum InputContents {
+enum InputContents {
     // Unexpected input
     ClosingParen(char, String),
     // Invalid input
@@ -150,7 +169,7 @@ pub enum InputContents {
     Nothing,
 }
 impl InputContents {
-    pub fn parse(s: &mut S) -> Self {
+    fn parse(s: &mut S) -> Self {
         let mut chars = String::new();
         let mut nesting_level = 0;
         loop {
@@ -178,9 +197,9 @@ impl InputContents {
     }
 }
 
-pub enum Invocation {}
+enum Invocation {}
 impl Invocation {
-    pub fn parse(s: &mut S) -> Self {
+    fn parse(s: &mut S) -> Self {
         let name = match Name::parse(s) {
             Name::Nothing(words) => {}
         };
