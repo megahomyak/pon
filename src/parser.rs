@@ -23,130 +23,143 @@ mod s {
 }
 use s::S;
 
-pub enum Error {
-    EscapeAtEndOfInput(),
-}
-pub type Result<T> = std::result::Result<T, Error>;
+struct Whitespace(char);
+struct Semicolon(char);
+struct OpeningParen(char);
+struct ClosingParen(char);
 
-struct WordSeparator(char);
-struct CommandInvocationSeparator(char);
-struct InputContentsOpener(char);
-struct InputContentsCloser(char);
+mod program {
+    mod command_invocation {
+        mod command_name {
+            mod word {
+                mod char_ {
 
-struct WordChar(char);
-enum WordCharParsingResultUnexpectedInput {
-    WordSeparator(WordSeparator),
-    CommandInvocationSeparator(CommandInvocationSeparator),
-    InputContentsOpener(InputContentsOpener),
-    InputContentsCloser(InputContentsCloser),
-    EndOfInput(),
-}
-enum WordCharParsingResult {
-    Valid(WordChar),
-    UnexpectedInput(WordCharParsingResultUnexpectedInput),
-}
-fn parse_word_char(s: &mut S) -> Result<WordCharParsingResult> {
-    use WordCharParsingResult as O;
-    use O::UnexpectedInput as UI;
-    use WordCharParsingResultUnexpectedInput as UIK;
-    Ok(match s.next() {
-        None => UI(UIK::EndOfInput()),
-        Some(c @ ';') => O::UnexpectedSemicolon(CommandInvocationSeparator(c)),
-        Some(c @ '(') => O::UnexpectedOpeningParen(InputContentsOpener(c)),
-        Some(c @ ')') => O::UnexpectedClosingParen(InputContentsCloser(c)),
-        Some('\\') => match s.next() {
-            None => return Err(Error::EscapeAtEndOfInput()),
-            Some(c) => O::Valid(WordChar(c)),
-        },
-        Some(c) if c.is_whitespace() => O::UnexpectedWhitespace(WordSeparator(c)),
-        Some(c) => O::Valid(WordChar(c)),
-    })
-}
+                }
+            }
+        }
+        mod command_input {
+            mod contents {
+                mod char_ {
 
-struct Word(Vec<WordChar>);
-enum WordParsingResultUnexpectedInput {
-    Whitespace(WordSeparator),
-    Semicolon(CommandInvocationSeparator),
-    OpeningParen(InputContentsOpener),
-    ClosingParen(InputContentsCloser),
-    EndOfInput(),
-}
-struct WordParsingResult {
-    word: Option<Word>,
-
-    UnexpectedWhitespace(WordSeparator, Option<Word>),
-    UnexpectedSemicolon(CommandInvocationSeparator, Option<Word>),
-    UnexpectedOpeningParen(InputContentsOpener, Option<Word>),
-    UnexpectedClosingParen(InputContentsCloser, Option<Word>),
-    UnexpectedEndOfInput(Option<Word>),
-}
-fn parse_word(s: &mut S) -> Result<WordParsingResult> {
-    use WordCharParsingResult as I;
-    use WordParsingResult as O;
-    let mut word = Vec::new();
-    let pack = move |mut word: Vec<WordChar>| if word.is_empty() {
-        None
-    } else {
-        word.shrink_to_fit();
-        Some(Word(word))
-    };
-    loop {
-        match parse_word_char(s)? {
-            I::UnexpectedEndOfInput() => return Ok(O::UnexpectedEndOfInput(pack(word))),
-            I::Valid(c) => word.push(c),
-            I::UnexpectedSemicolon(c) => return Ok(O::UnexpectedSemicolon(c, pack(word))),
-            I::UnexpectedOpeningParen(c) => return Ok(O::UnexpectedOpeningParen(c, pack(word))),
-            I::UnexpectedWhitespace(c) => return O::UnexpectedWhitespace(c, pack(word)),
-            I::UnexpectedClosingParen(c) => return O::UnexpectedClosingParen(c, pack(word)),
+                }
+            }
         }
     }
 }
 
-struct Name(Vec<Word>);
+struct CommandNameWordChar(char);
+enum CommandNameWordCharParsingResult {
+    // Success
+    Valid(CommandNameWordChar),
+    // Unexpected input
+    Whitespace(Whitespace),
+    Semicolon(Semicolon),
+    OpeningParen(OpeningParen),
+    ClosingParen(ClosingParen),
+    // Invalid input
+    EscapeAtEnd(),
+    Nothing(),
+}
+fn parse_word_char(s: &mut S) -> CommandNameWordCharParsingResult {
+    use CommandNameWordCharParsingResult as O;
+    match s.next() {
+        None => O::Nothing(),
+        Some(c @ ';') => O::Semicolon(Semicolon(c)),
+        Some(c @ '(') => O::OpeningParen(OpeningParen(c)),
+        Some(c @ ')') => O::ClosingParen(ClosingParen(c)),
+        Some('\\') => match s.next() {
+            None => O::EscapeAtEnd(),
+            Some(c) => O::Valid(CommandNameWordChar(c)),
+        },
+        Some(c) if c.is_whitespace() => O::Whitespace(Whitespace(c)),
+        Some(c) => O::Valid(CommandNameWordChar(c)),
+    }
+}
+
+struct CommandNameWord(Vec<CommandNameWordChar>);
+enum CommandNameWordParsingResult {
+    // Unexpected input
+    Whitespace(Whitespace, Option<CommandNameWord>),
+    Semicolon(Semicolon, Option<CommandNameWord>),
+    OpeningParen(OpeningParen, Option<CommandNameWord>),
+    ClosingParen(ClosingParen, Option<CommandNameWord>),
+    Nothing(Option<CommandNameWord>),
+    // Invalid input
+    EscapeAtEnd(),
+}
+fn parse_word(s: &mut S) -> CommandNameWordParsingResult {
+    use CommandNameWordCharParsingResult as I;
+    use CommandNameWordParsingResult as O;
+    let mut word = Vec::new();
+    let pack = move |mut word: Vec<CommandNameWordChar>| {
+        if word.is_empty() {
+            None
+        } else {
+            word.shrink_to_fit();
+            Some(CommandNameWord(word))
+        }
+    };
+    loop {
+        match parse_word_char(s) {
+            I::Nothing() => return O::Nothing(pack(word)),
+            I::EscapeAtEnd() => return O::EscapeAtEnd(),
+            I::Valid(c) => word.push(c),
+            I::Semicolon(c) => return O::Semicolon(c, pack(word)),
+            I::OpeningParen(c) => return O::OpeningParen(c, pack(word)),
+            I::Whitespace(c) => return O::Whitespace(c, pack(word)),
+            I::ClosingParen(c) => return O::ClosingParen(c, pack(word)),
+        }
+    }
+}
+
+struct CommandName(Vec<CommandNameWord>);
 enum NameParsingResult {
     // Unexpected input
-    UnexpectedSemicolon(CommandInvocationSeparator, Option<Name>),
-    UnexpectedOpeningParen(InputContentsOpener, Option<Name>),
-    UnexpectedClosingParen(InputContentsCloser, Option<Name>),
-    UnexpectedEndOfInput(Option<Name>),
+    Semicolon(Semicolon, Option<CommandName>),
+    OpeningParen(OpeningParen, Option<CommandName>),
+    ClosingParen(ClosingParen, Option<CommandName>),
+    Nothing(Option<CommandName>),
     // Invalid input
-    EscapeAtEndOfInput(),
+    EscapeAtEnd(),
 }
 fn parse_name(s: &mut S) -> NameParsingResult {
-    use WordParsingResult as I;
     use NameParsingResult as O;
+    use CommandNameWordParsingResult as I;
     let mut words = Vec::new();
+    let mut maybe_add = |word: Option<CommandNameWord>| {
+        if let Some(w) = word {
+            words.push(w);
+        }
+    };
+    let pack = |mut words: Vec<CommandNameWord>| {
+        if words.is_empty() {
+            None
+        } else {
+            words.shrink_to_fit();
+            Some(CommandName(words))
+        }
+    };
     loop {
         match parse_word(s) {
-            I::EscapeAtEndOfInput() => return O::EscapeAtEndOfInput(),
-            I::UnexpectedEndOfInput(w) => {
-                if !w.is_empty() {
-                    words.push(w);
-                }
-                return O::UnexpectedEndOfInput(words);
+            I::EscapeAtEnd() => return O::EscapeAtEnd(),
+            I::Nothing(w) => {
+                maybe_add(w);
+                return O::Nothing(pack(words));
             }
-            I::UnexpectedClosingParen(c, w) => {
-                if !w.is_empty() {
-                    words.push(w);
-                }
-                return Self::ClosingParen(c, words);
+            I::ClosingParen(c, w) => {
+                maybe_add(w);
+                return O::ClosingParen(c, pack(words));
             }
-            I::UnexpectedOpeningParen(c, w) => {
-                if !w.is_empty() {
-                    words.push(w);
-                }
-                return Self::OpeningParen(c, words);
+            I::OpeningParen(c, w) => {
+                maybe_add(w);
+                return O::OpeningParen(c, pack(words));
             }
-            I::UnexpectedSemicolon(c, w) => {
-                if !w.is_empty() {
-                    words.push(w);
-                }
-                return Self::Semicolon(c, words);
+            I::Semicolon(c, w) => {
+                maybe_add(w);
+                return O::Semicolon(c, pack(words));
             }
-            I::UnexpectedWhitespace(_c, w) => {
-                if !w.is_empty() {
-                    words.push(w);
-                }
+            I::Whitespace(_c, w) => {
+                maybe_add(w);
             }
         }
     }
@@ -211,14 +224,5 @@ impl InputContents {
                 }
             }
         }
-    }
-}
-
-enum Invocation {}
-impl Invocation {
-    fn parse(s: &mut S) -> Self {
-        let name = match Name::parse(s) {
-            Name::Nothing(words) => {}
-        };
     }
 }
