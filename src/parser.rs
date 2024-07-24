@@ -1,79 +1,105 @@
-mod s {
-    pub struct S<'a> {
-        idx: usize,
-        s: &'a str,
+mod input {
+    pub struct Input<'a> {
+        current_index: usize,
+        content: &'a str,
     }
-    impl<'a> S<'a> {
+    impl<'a> Input<'a> {
         pub fn new(s: &'a str) -> Self {
-            Self { s, idx: 0 }
+            Self {
+                content: s,
+                current_index: 0,
+            }
         }
         pub fn next(&mut self) -> Option<char> {
-            unsafe { self.s.get_unchecked(self.idx..) }
+            unsafe { self.content.get_unchecked(self.current_index..) }
                 .chars()
                 .next()
-                .inspect(|c| self.idx += c.len_utf8())
+                .inspect(|c| self.current_index += c.len_utf8())
         }
-        pub fn s(&self) -> &str {
-            self.s
+        pub fn content(&self) -> &str {
+            self.content
         }
-        pub fn idx(&self) -> usize {
-            self.idx
+        pub fn current_index(&self) -> usize {
+            self.current_index
         }
     }
 }
-use s::S;
+use input::Input;
 
-struct Whitespace(char);
-struct Semicolon(char);
-struct OpeningParen(char);
-struct ClosingParen(char);
+struct WordSeparator(char);
+struct CommandInvocationSeparator(char);
+struct InputOpener(char);
+struct InputCloser(char);
+
+enum InvalidInput {
+    EscapeAtEndOfInput(),
+}
+use InvalidInput as II_;
+
+enum Result<Success, UnexpectedInput> {
+    Success(Success),
+    UnexpectedInput(UnexpectedInput),
+    InvalidInput(InvalidInput),
+}
+use Result::InvalidInput as II;
+use Result::Success as S;
+use Result::UnexpectedInput as UI;
 
 mod program {
+    use super::*;
     mod command_invocation {
+        use super::*;
         mod command_name {
+            use super::*;
             mod word {
+                use super::*;
                 mod char_ {
-
+                    use super::*;
+                    struct Char(char);
+                    enum UnexpectedInput {
+                        WordSeparator(WordSeparator),
+                        CommandInvocationSeparator(CommandInvocationSeparator),
+                        InputOpener(InputOpener),
+                        InputCloser(InputCloser),
+                        InputEnd(),
+                    }
+                    use UnexpectedInput as UI_;
+                    fn parse(s: &mut Input) -> Result<Char, UnexpectedInput> {
+                        match s.next() {
+                            None => UI(UI_::InputEnd()),
+                            Some(c @ ';') => UI(UI_::CommandInvocationSeparator(
+                                CommandInvocationSeparator(c),
+                            )),
+                            Some(c @ '(') => UI(UI_::InputOpener(InputOpener(c))),
+                            Some(c @ ')') => UI(UI_::InputCloser(InputCloser(c))),
+                            Some('\\') => match s.next() {
+                                None => II(InvalidInput::EscapeAtEndOfInput()),
+                                Some(c) => S(Char(c)),
+                            },
+                            Some(c) if c.is_whitespace() => {
+                                UI(UI_::WordSeparator(WordSeparator(c)))
+                            }
+                            Some(c) => S(Char(c)),
+                        }
+                    }
                 }
             }
         }
+        use super::*;
         mod command_input {
+            use super::*;
             mod contents {
+                use super::*;
                 mod char_ {
-
+                    use super::*;
                 }
             }
         }
     }
-}
 
-struct CommandNameWordChar(char);
-enum CommandNameWordCharParsingResult {
-    // Success
-    Valid(CommandNameWordChar),
-    // Unexpected input
-    Whitespace(Whitespace),
-    Semicolon(Semicolon),
-    OpeningParen(OpeningParen),
-    ClosingParen(ClosingParen),
-    // Invalid input
-    EscapeAtEnd(),
-    Nothing(),
-}
-fn parse_word_char(s: &mut S) -> CommandNameWordCharParsingResult {
-    use CommandNameWordCharParsingResult as O;
-    match s.next() {
-        None => O::Nothing(),
-        Some(c @ ';') => O::Semicolon(Semicolon(c)),
-        Some(c @ '(') => O::OpeningParen(OpeningParen(c)),
-        Some(c @ ')') => O::ClosingParen(ClosingParen(c)),
-        Some('\\') => match s.next() {
-            None => O::EscapeAtEnd(),
-            Some(c) => O::Valid(CommandNameWordChar(c)),
-        },
-        Some(c) if c.is_whitespace() => O::Whitespace(Whitespace(c)),
-        Some(c) => O::Valid(CommandNameWordChar(c)),
-    }
+    enum ParsingResult {}
+
+    pub fn parse(s: Input) -> ParsingResult {}
 }
 
 struct CommandNameWord(Vec<CommandNameWordChar>);
@@ -87,7 +113,7 @@ enum CommandNameWordParsingResult {
     // Invalid input
     EscapeAtEnd(),
 }
-fn parse_word(s: &mut S) -> CommandNameWordParsingResult {
+fn parse_word(s: &mut Input) -> CommandNameWordParsingResult {
     use CommandNameWordCharParsingResult as I;
     use CommandNameWordParsingResult as O;
     let mut word = Vec::new();
@@ -122,9 +148,9 @@ enum NameParsingResult {
     // Invalid input
     EscapeAtEnd(),
 }
-fn parse_name(s: &mut S) -> NameParsingResult {
-    use NameParsingResult as O;
+fn parse_name(s: &mut Input) -> NameParsingResult {
     use CommandNameWordParsingResult as I;
+    use NameParsingResult as O;
     let mut words = Vec::new();
     let mut maybe_add = |word: Option<CommandNameWord>| {
         if let Some(w) = word {
@@ -177,7 +203,7 @@ enum InputChar {
     Nothing,
 }
 impl InputChar {
-    fn parse(s: &mut S) -> Self {
+    fn parse(s: &mut Input) -> Self {
         match s.next() {
             None => Self::Nothing,
             Some(c @ '(') => Self::OpeningParen(c),
@@ -199,7 +225,7 @@ enum InputContents {
     Nothing,
 }
 impl InputContents {
-    fn parse(s: &mut S) -> Self {
+    fn parse(s: &mut Input) -> Self {
         let mut chars = String::new();
         let mut nesting_level = 0;
         loop {
