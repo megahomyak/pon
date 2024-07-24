@@ -12,8 +12,51 @@ impl<'a> ParserInput<'a> {
     }
 }
 
+mod non_empty {
+    #[derive(Debug)]
+    pub struct NonEmpty<T>(T);
+    impl<T> AsRef<T> for NonEmpty<T> {
+        fn as_ref(&self) -> &T {
+            &self.0
+        }
+    }
+    impl<T: Container> NonEmpty<T> {
+        pub fn new(mut t: T) -> Option<Self> {
+            if t.is_empty() {
+                None
+            } else {
+                t.shrink_to_fit();
+                Some(Self(t))
+            }
+        }
+    }
+    pub trait Container {
+        fn is_empty(&self) -> bool;
+        /// Shrink the container to occupy the minimal amount of memory possible, preserving
+        /// the container's contents
+        fn shrink_to_fit(&mut self);
+    }
+    impl Container for String {
+        fn is_empty(&self) -> bool {
+            String::is_empty(self)
+        }
+        fn shrink_to_fit(&mut self) {
+            String::shrink_to_fit(self);
+        }
+    }
+    impl<T> Container for Vec<T> {
+        fn is_empty(&self) -> bool {
+            Vec::is_empty(self)
+        }
+        fn shrink_to_fit(&mut self) {
+            Vec::shrink_to_fit(self);
+        }
+    }
+}
+pub use non_empty::NonEmpty;
+
 #[derive(Debug)]
-pub struct Word(pub String);
+pub struct Word(pub NonEmpty<String>);
 enum AfterWord {
     CommandSeparator(),
     WordSeparator(),
@@ -41,17 +84,11 @@ fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
             }
         }
     };
-    let word = if word.is_empty() {
-        None
-    } else {
-        word.shrink_to_fit();
-        Some(Word(word))
-    };
-    (word, after)
+    (NonEmpty::new(word).map(|word| Word(word)), after)
 }
 
 #[derive(Debug)]
-pub struct Name(pub Vec<Word>);
+pub struct Name(pub NonEmpty<Vec<Word>>);
 enum AfterName {
     CommandSeparator(),
     PonInputOpener(),
@@ -73,13 +110,7 @@ fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
             AfterWord::WordSeparator() => (),
         }
     };
-    let name = if name.is_empty() {
-        None
-    } else {
-        name.shrink_to_fit();
-        Some(Name(name))
-    };
-    (name, after)
+    (NonEmpty::new(name).map(|name| Name(name)), after)
 }
 
 #[derive(Debug)]

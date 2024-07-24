@@ -1,7 +1,10 @@
 mod parser;
 
 fn read_line() -> Option<String> {
+    use std::io::Write;
     let mut buffer = String::new();
+    std::io::stdout().write(b">>> ").unwrap();
+    std::io::stdout().flush().unwrap();
     if std::io::stdin().read_line(&mut buffer).unwrap() == 0 {
         None
     } else {
