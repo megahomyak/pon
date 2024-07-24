@@ -125,7 +125,7 @@ enum AfterCommand {
     EscapeAtEndOfInput(),
     ParserInputEnd(),
 }
-pub fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
+fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
     use name as parse_name;
     let (name, after_name) = parse_name(s);
     let mut pon_inputs = Vec::new();
