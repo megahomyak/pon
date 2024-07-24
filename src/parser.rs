@@ -1,5 +1,5 @@
 #[derive(Clone)]
-pub struct ParserInput<'a> {
+struct ParserInput<'a> {
     idx: usize,
     s: &'a str,
 }
@@ -12,6 +12,7 @@ impl<'a> ParserInput<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Word(pub String);
 enum AfterWord {
     CommandSeparator(),
@@ -49,6 +50,7 @@ fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
     (word, after)
 }
 
+#[derive(Debug)]
 pub struct Name(pub Vec<Word>);
 enum AfterName {
     CommandSeparator(),
@@ -80,6 +82,7 @@ fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
     (name, after)
 }
 
+#[derive(Debug)]
 pub struct PonInput(pub String);
 enum AfterPonInput {
     PonInputTerminator(),
@@ -118,6 +121,7 @@ fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
     (PonInput(input), after)
 }
 
+#[derive(Debug)]
 pub struct Command(pub Option<Name>, pub Vec<PonInput>);
 enum AfterCommand {
     CommandSeparator(),
@@ -136,7 +140,9 @@ fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
                 break loop {
                     let (pon_input, after_pon_input) = pon_input(s);
                     match after_pon_input {
-                        AfterPonInput::ParserInputEnd() => break AfterCommand::MissingInputTerminator(),
+                        AfterPonInput::ParserInputEnd() => {
+                            break AfterCommand::MissingInputTerminator()
+                        }
                         AfterPonInput::EscapeAtEndOfInput() => {
                             break AfterCommand::EscapeAtEndOfInput()
                         }
@@ -172,16 +178,19 @@ fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
     (command, after)
 }
 
-pub struct Program(Vec<Command>);
+#[derive(Debug)]
+pub struct Program(pub Vec<Command>);
+#[derive(Debug)]
 pub enum AfterProgram {
     EscapeAtEndOfInput(),
     ParserInputEnd(),
     MissingInputTerminator(),
 }
-pub fn program(s: &mut ParserInput) -> (Program, AfterProgram) {
+pub fn program(s: &str) -> (Program, AfterProgram) {
+    let mut s = ParserInput { s, idx: 0 };
     let mut commands = Vec::new();
     let after = loop {
-        let (command, after_command) = command(s);
+        let (command, after_command) = command(&mut s);
         if let Some(command) = command {
             commands.push(command);
         }
