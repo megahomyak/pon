@@ -1,3 +1,5 @@
+mod interpreter;
+mod non_empty;
 mod parser;
 
 fn read_line() -> Option<String> {
@@ -19,14 +21,17 @@ fn main() {
         for line in lines_buffer.iter().chain(std::iter::once(&line)) {
             full_program.push_str(line);
         }
-        let (program, after_program) = parser::program(&full_program);
-        match after_program {
-            parser::AfterProgram::ParserInputEnd() => {
-                lines_buffer.clear();
-                println!("{:?}", program);
+        let (command, after_command) = parser::command(&mut (&full_program[..]).into());
+        match after_command {
+            parser::AfterCommand::CommandSeparator() => {
+
             }
-            parser::AfterProgram::EscapeAtEndOfInput() => unreachable!(),
-            parser::AfterProgram::MissingInputTerminator() => {
+            parser::AfterCommand::ParserInputEnd() => {
+                lines_buffer.clear();
+                println!("{:?}", command);
+            }
+            parser::AfterCommand::EscapeAtEndOfInput() => unreachable!(),
+            parser::AfterCommand::MissingInputTerminator() => {
                 lines_buffer.push(line);
             }
         }

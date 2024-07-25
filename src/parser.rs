@@ -1,7 +1,14 @@
+use crate::non_empty::NonEmpty;
+
 #[derive(Clone)]
-struct ParserInput<'a> {
+pub struct ParserInput<'a> {
     idx: usize,
     s: &'a str,
+}
+impl<'a> From<&'a str> for ParserInput<'a> {
+    fn from(s: &'a str) -> Self {
+        Self { s, idx: 0 }
+    }
 }
 impl<'a> ParserInput<'a> {
     fn next(&mut self) -> Option<char> {
@@ -12,59 +19,16 @@ impl<'a> ParserInput<'a> {
     }
 }
 
-mod non_empty {
-    #[derive(Debug)]
-    pub struct NonEmpty<T>(T);
-    impl<T> AsRef<T> for NonEmpty<T> {
-        fn as_ref(&self) -> &T {
-            &self.0
-        }
-    }
-    impl<T: Container> NonEmpty<T> {
-        pub fn new(mut t: T) -> Option<Self> {
-            if t.is_empty() {
-                None
-            } else {
-                t.shrink_to_fit();
-                Some(Self(t))
-            }
-        }
-    }
-    pub trait Container {
-        fn is_empty(&self) -> bool;
-        /// Shrink the container to occupy the minimal amount of memory possible, preserving
-        /// the container's contents
-        fn shrink_to_fit(&mut self);
-    }
-    impl Container for String {
-        fn is_empty(&self) -> bool {
-            String::is_empty(self)
-        }
-        fn shrink_to_fit(&mut self) {
-            String::shrink_to_fit(self);
-        }
-    }
-    impl<T> Container for Vec<T> {
-        fn is_empty(&self) -> bool {
-            Vec::is_empty(self)
-        }
-        fn shrink_to_fit(&mut self) {
-            Vec::shrink_to_fit(self);
-        }
-    }
-}
-pub use non_empty::NonEmpty;
-
 #[derive(Debug)]
 pub struct Word(pub NonEmpty<String>);
-enum AfterWord {
+pub enum AfterWord {
     CommandSeparator(),
     WordSeparator(),
     PonInputOpener(),
     ParserInputEnd(),
     EscapeAtEndOfInput(),
 }
-fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
+pub fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
     let mut word = String::new();
     let after = loop {
         match s.next() {
@@ -89,13 +53,13 @@ fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
 
 #[derive(Debug)]
 pub struct Name(pub NonEmpty<Vec<Word>>);
-enum AfterName {
+pub enum AfterName {
     CommandSeparator(),
     PonInputOpener(),
     ParserInputEnd(),
     EscapeAtEndOfInput(),
 }
-fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
+pub fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
     let mut name = Vec::new();
     let after = loop {
         let (word, after_word) = word(s);
@@ -115,12 +79,12 @@ fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
 
 #[derive(Debug)]
 pub struct PonInput(pub String);
-enum AfterPonInput {
+pub enum AfterPonInput {
     PonInputTerminator(),
     ParserInputEnd(),
     EscapeAtEndOfInput(),
 }
-fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
+pub fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
     let mut input = String::new();
     let mut nesting_level = 0;
     let after = loop {
@@ -154,13 +118,13 @@ fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
 
 #[derive(Debug)]
 pub struct Command(pub Option<Name>, pub Vec<PonInput>);
-enum AfterCommand {
+pub enum AfterCommand {
     CommandSeparator(),
     MissingInputTerminator(),
     EscapeAtEndOfInput(),
     ParserInputEnd(),
 }
-fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
+pub fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
     use name as parse_name;
     let (name, after_name) = parse_name(s);
     let mut pon_inputs = Vec::new();
@@ -217,11 +181,10 @@ pub enum AfterProgram {
     ParserInputEnd(),
     MissingInputTerminator(),
 }
-pub fn program(s: &str) -> (Program, AfterProgram) {
-    let mut s = ParserInput { s, idx: 0 };
+pub fn program(s: &mut ParserInput) -> (Program, AfterProgram) {
     let mut commands = Vec::new();
     let after = loop {
-        let (command, after_command) = command(&mut s);
+        let (command, after_command) = command(s);
         if let Some(command) = command {
             commands.push(command);
         }
