@@ -1,14 +1,15 @@
 use crate::non_empty::NonEmpty;
 
+#[derive(Debug)]
+pub struct Index(pub usize);
+
+#[derive(Debug)]
+pub struct Positioned<T>(pub T, pub Index);
+
 #[derive(Clone)]
-pub struct ParserInput<'a> {
+struct ParserInput<'a> {
     idx: usize,
     s: &'a str,
-}
-impl<'a> From<&'a str> for ParserInput<'a> {
-    fn from(s: &'a str) -> Self {
-        Self { s, idx: 0 }
-    }
 }
 impl<'a> ParserInput<'a> {
     fn next(&mut self) -> Option<char> {
@@ -21,21 +22,22 @@ impl<'a> ParserInput<'a> {
 
 #[derive(Debug)]
 pub struct Word(pub NonEmpty<String>);
-pub enum AfterWord {
+enum AfterWord {
     CommandSeparator(),
     WordSeparator(),
-    PonInputOpener(),
+    PonInputOpener(Index),
     ParserInputEnd(),
     EscapeAtEndOfInput(),
 }
-pub fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
+fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
     let mut word = String::new();
     let after = loop {
+        let pos = s.idx;
         match s.next() {
             None => break AfterWord::ParserInputEnd(),
             Some(mut c) => {
                 match c {
-                    '(' => break AfterWord::PonInputOpener(),
+                    '(' => break AfterWord::PonInputOpener(Index(pos)),
                     ';' | '\n' => break AfterWord::CommandSeparator(),
                     '\\' => match s.next() {
                         None => break AfterWord::EscapeAtEndOfInput(),
@@ -53,13 +55,13 @@ pub fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
 
 #[derive(Debug)]
 pub struct Name(pub NonEmpty<Vec<Word>>);
-pub enum AfterName {
+enum AfterName {
     CommandSeparator(),
-    PonInputOpener(),
+    PonInputOpener(Index),
     ParserInputEnd(),
     EscapeAtEndOfInput(),
 }
-pub fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
+fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
     let mut name = Vec::new();
     let after = loop {
         let (word, after_word) = word(s);
@@ -69,7 +71,7 @@ pub fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
         match after_word {
             AfterWord::EscapeAtEndOfInput() => break AfterName::EscapeAtEndOfInput(),
             AfterWord::CommandSeparator() => break AfterName::CommandSeparator(),
-            AfterWord::PonInputOpener() => break AfterName::PonInputOpener(),
+            AfterWord::PonInputOpener(pos) => break AfterName::PonInputOpener(pos),
             AfterWord::ParserInputEnd() => break AfterName::ParserInputEnd(),
             AfterWord::WordSeparator() => (),
         }
@@ -79,12 +81,12 @@ pub fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
 
 #[derive(Debug)]
 pub struct PonInput(pub String);
-pub enum AfterPonInput {
+enum AfterPonInput {
     PonInputTerminator(),
     ParserInputEnd(),
     EscapeAtEndOfInput(),
 }
-pub fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
+fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
     let mut input = String::new();
     let mut nesting_level = 0;
     let after = loop {
@@ -118,25 +120,26 @@ pub fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
 
 #[derive(Debug)]
 pub struct Command(pub Option<Name>, pub Vec<PonInput>);
-pub enum AfterCommand {
+enum AfterCommand {
     CommandSeparator(),
-    MissingInputTerminator(),
+    MissingInputTerminator { opener_index: Index },
     EscapeAtEndOfInput(),
     ParserInputEnd(),
 }
-pub fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
+fn command(s: &mut ParserInput) -> (Option<Positioned<Command>>, AfterCommand) {
     use name as parse_name;
+    let index = Index(s.idx);
     let (name, after_name) = parse_name(s);
     let mut pon_inputs = Vec::new();
     let after = loop {
         match after_name {
             AfterName::ParserInputEnd() => break AfterCommand::ParserInputEnd(),
-            AfterName::PonInputOpener() => {
+            AfterName::PonInputOpener(opener_index) => {
                 break loop {
                     let (pon_input, after_pon_input) = pon_input(s);
                     match after_pon_input {
                         AfterPonInput::ParserInputEnd() => {
-                            break AfterCommand::MissingInputTerminator()
+                            break AfterCommand::MissingInputTerminator { opener_index }
                         }
                         AfterPonInput::EscapeAtEndOfInput() => {
                             break AfterCommand::EscapeAtEndOfInput()
@@ -153,7 +156,7 @@ pub fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
                         AfterName::EscapeAtEndOfInput() => {
                             break AfterCommand::EscapeAtEndOfInput()
                         }
-                        AfterName::PonInputOpener() => (),
+                        AfterName::PonInputOpener(_pos) => (),
                         AfterName::ParserInputEnd() => break AfterCommand::ParserInputEnd(),
                         AfterName::CommandSeparator() => break AfterCommand::CommandSeparator(),
                     }
@@ -168,7 +171,7 @@ pub fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
         None
     } else {
         pon_inputs.shrink_to_fit();
-        Some(Command(name, pon_inputs))
+        Some(Positioned(Command(name, pon_inputs), index))
     };
     (command, after)
 }
@@ -179,12 +182,13 @@ pub struct Program(pub Vec<Command>);
 pub enum AfterProgram {
     EscapeAtEndOfInput(),
     ParserInputEnd(),
-    MissingInputTerminator(),
+    MissingInputTerminator { opener_index: Index },
 }
-pub fn program(s: &mut ParserInput) -> (Program, AfterProgram) {
+pub fn program(s: &str) -> (Program, AfterProgram) {
+    let mut s = ParserInput { s, idx: 0 };
     let mut commands = Vec::new();
     let after = loop {
-        let (command, after_command) = command(s);
+        let (command, after_command) = command(&mut s);
         if let Some(command) = command {
             commands.push(command);
         }
@@ -192,7 +196,9 @@ pub fn program(s: &mut ParserInput) -> (Program, AfterProgram) {
             AfterCommand::CommandSeparator() => (),
             AfterCommand::EscapeAtEndOfInput() => break AfterProgram::EscapeAtEndOfInput(),
             AfterCommand::ParserInputEnd() => break AfterProgram::ParserInputEnd(),
-            AfterCommand::MissingInputTerminator() => break AfterProgram::MissingInputTerminator(),
+            AfterCommand::MissingInputTerminator { opener_index } => {
+                break AfterProgram::MissingInputTerminator { opener_index }
+            }
         }
     };
     commands.shrink_to_fit();

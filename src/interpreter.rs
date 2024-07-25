@@ -1,23 +1,32 @@
-use crate::non_empty::NonEmpty;
+use std::collections::HashMap;
+
 use crate::parser;
 
 pub struct Command(parser::Name, Vec<parser::PonInput>);
-pub struct Program(Vec<Command>);
 
 pub enum ConversionError {
-    NameMissing(),
+    NameMissing(parser::Index),
 }
-pub fn convert(old_program: parser::Program) -> Result<Program, ConversionError> {
-    let mut new_program = Vec::with_capacity(old_program.0.len());
-    for old_command in old_program.0 {
-        let parser::Command(old_name, old_inputs) = old_command;
-        let Some(old_name) = old_name else {
-            return Err(ConversionError::NameMissing());
-        };
-        new_program.push(Command(old_name, old_inputs));
-    }
-    new_program.shrink_to_fit();
-    Ok(Program(new_program))
+pub fn convert(
+    old_command: parser::Positioned<parser::Command>,
+) -> Result<Command, ConversionError> {
+    let parser::Positioned(old_command, index) = old_command;
+    let parser::Command(old_name, old_inputs) = old_command;
+    let Some(old_name) = old_name else {
+        return Err(ConversionError::NameMissing(index));
+    };
+    Ok(Command(old_name, old_inputs))
 }
 
-pub fn interpret(program: &Program) {}
+pub trait Object: downcast_rs::Downcast {}
+downcast_rs::impl_downcast!(Object);
+
+pub struct Interpreter {
+    pub scope: HashMap<parser::Name, Box<dyn Object>>,
+}
+
+impl Interpreter {
+    pub fn interpret(command: Command) -> () {
+        let Command(name, input) = command;
+    }
+}

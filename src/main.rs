@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 mod interpreter;
 mod non_empty;
 mod parser;
@@ -15,25 +17,33 @@ fn read_line() -> Option<String> {
 }
 
 fn main() {
-    let mut lines_buffer = Vec::new();
-    while let Some(line) = read_line() {
-        let mut full_program = String::new();
-        for line in lines_buffer.iter().chain(std::iter::once(&line)) {
-            full_program.push_str(line);
-        }
-        let (command, after_command) = parser::command(&mut (&full_program[..]).into());
-        match after_command {
-            parser::AfterCommand::CommandSeparator() => {
-
+    let interpreter = interpreter::Interpreter {
+        scope: HashMap::new(),
+    };
+    loop {
+        let mut lines_buffer = Vec::new();
+        let program = loop {
+            let Some(line) = read_line() else {
+                println!("Terminating as requested.");
+                return;
+            };
+            let mut full_program = String::new();
+            for line in lines_buffer.iter().chain(std::iter::once(&line)) {
+                full_program.push_str(line);
             }
-            parser::AfterCommand::ParserInputEnd() => {
-                lines_buffer.clear();
-                println!("{:?}", command);
+            let (program, after_program) = parser::program(&full_program);
+            match after_program {
+                parser::AfterProgram::ParserInputEnd() => break program,
+                parser::AfterProgram::EscapeAtEndOfInput() => unreachable!(),
+                parser::AfterProgram::MissingInputTerminator { opener_index: _ } => {
+                    lines_buffer.push(line);
+                    continue;
+                }
             }
-            parser::AfterCommand::EscapeAtEndOfInput() => unreachable!(),
-            parser::AfterCommand::MissingInputTerminator() => {
-                lines_buffer.push(line);
-            }
+        };
+        for command in program.0 {
+            let program = interpreter::convert(command);
+            interpreter::interpret(program);
         }
     }
 }
