@@ -7,15 +7,13 @@ pub struct Command(parser::Name, Vec<parser::PonInput>);
 pub enum ConversionError {
     NameMissing(parser::Index),
 }
-pub fn convert(
-    old_command: parser::Positioned<parser::Command>,
-) -> Result<Command, ConversionError> {
-    let parser::Positioned(old_command, index) = old_command;
-    let parser::Command(old_name, old_inputs) = old_command;
-    let Some(old_name) = old_name else {
-        return Err(ConversionError::NameMissing(index));
+pub fn convert(old_command: parser::Command) -> Result<Command, ConversionError> {
+    let parser::Command(index, kind) = old_command;
+    let (name, pon_inputs) = match kind {
+        parser::CommandKind::Named(name, pon_inputs) => (name, pon_inputs),
+        parser::CommandKind::Unnamed(..) => return Err(ConversionError::NameMissing(index)),
     };
-    Ok(Command(old_name, old_inputs))
+    Ok(Command(name, pon_inputs))
 }
 
 pub trait Object: downcast_rs::Downcast {}
@@ -26,7 +24,7 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    pub fn interpret(command: Command) -> () {
+    pub fn interpret(&mut self, command: Command) -> () {
         let Command(name, input) = command;
     }
 }

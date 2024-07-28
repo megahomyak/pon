@@ -3,9 +3,6 @@ use crate::non_empty::NonEmpty;
 #[derive(Debug)]
 pub struct Index(pub usize);
 
-#[derive(Debug)]
-pub struct Positioned<T>(pub T, pub Index);
-
 #[derive(Clone)]
 struct ParserInput<'a> {
     idx: usize,
@@ -32,12 +29,12 @@ enum AfterWord {
 fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
     let mut word = String::new();
     let after = loop {
-        let pos = s.idx;
+        let index = s.idx;
         match s.next() {
             None => break AfterWord::ParserInputEnd(),
             Some(mut c) => {
                 match c {
-                    '(' => break AfterWord::PonInputOpener(Index(pos)),
+                    '(' => break AfterWord::PonInputOpener(Index(index)),
                     ';' | '\n' => break AfterWord::CommandSeparator(),
                     '\\' => match s.next() {
                         None => break AfterWord::EscapeAtEndOfInput(),
@@ -71,7 +68,7 @@ fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
         match after_word {
             AfterWord::EscapeAtEndOfInput() => break AfterName::EscapeAtEndOfInput(),
             AfterWord::CommandSeparator() => break AfterName::CommandSeparator(),
-            AfterWord::PonInputOpener(pos) => break AfterName::PonInputOpener(pos),
+            AfterWord::PonInputOpener(index) => break AfterName::PonInputOpener(index),
             AfterWord::ParserInputEnd() => break AfterName::ParserInputEnd(),
             AfterWord::WordSeparator() => (),
         }
@@ -119,60 +116,62 @@ fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
 }
 
 #[derive(Debug)]
-pub struct Command(pub Option<Name>, pub Vec<PonInput>);
+pub enum CommandKind {
+    Named(Name, Vec<PonInput>),
+    Unnamed(NonEmpty<Vec<PonInput>>),
+}
+#[derive(Debug)]
+pub struct Command(pub Index, pub CommandKind);
 enum AfterCommand {
     CommandSeparator(),
     MissingInputTerminator { opener_index: Index },
     EscapeAtEndOfInput(),
     ParserInputEnd(),
 }
-fn command(s: &mut ParserInput) -> (Option<Positioned<Command>>, AfterCommand) {
+fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
     use name as parse_name;
     let index = Index(s.idx);
     let (name, after_name) = parse_name(s);
     let mut pon_inputs = Vec::new();
-    let after = loop {
-        match after_name {
-            AfterName::ParserInputEnd() => break AfterCommand::ParserInputEnd(),
-            AfterName::PonInputOpener(opener_index) => {
-                break loop {
-                    let (pon_input, after_pon_input) = pon_input(s);
-                    match after_pon_input {
-                        AfterPonInput::ParserInputEnd() => {
-                            break AfterCommand::MissingInputTerminator { opener_index }
-                        }
-                        AfterPonInput::EscapeAtEndOfInput() => {
-                            break AfterCommand::EscapeAtEndOfInput()
-                        }
-                        AfterPonInput::PonInputTerminator() => (),
-                    }
-                    pon_inputs.push(pon_input);
-                    let mut new_s = s.clone();
-                    let (name, after_name) = parse_name(&mut new_s);
-                    if name.is_some() {
-                        break AfterCommand::CommandSeparator();
-                    }
-                    match after_name {
-                        AfterName::EscapeAtEndOfInput() => {
-                            break AfterCommand::EscapeAtEndOfInput()
-                        }
-                        AfterName::PonInputOpener(_pos) => (),
-                        AfterName::ParserInputEnd() => break AfterCommand::ParserInputEnd(),
-                        AfterName::CommandSeparator() => break AfterCommand::CommandSeparator(),
-                    }
-                    *s = new_s;
+    let after = match after_name {
+        AfterName::ParserInputEnd() => AfterCommand::ParserInputEnd(),
+        AfterName::PonInputOpener(opener_index) => loop {
+            let (pon_input, after_pon_input) = pon_input(s);
+            match after_pon_input {
+                AfterPonInput::ParserInputEnd() => {
+                    break AfterCommand::MissingInputTerminator { opener_index }
                 }
+                AfterPonInput::EscapeAtEndOfInput() => break AfterCommand::EscapeAtEndOfInput(),
+                AfterPonInput::PonInputTerminator() => (),
             }
-            AfterName::CommandSeparator() => break AfterCommand::CommandSeparator(),
-            AfterName::EscapeAtEndOfInput() => break AfterCommand::EscapeAtEndOfInput(),
+            pon_inputs.push(pon_input);
+            let mut new_s = s.clone();
+            let (name, after_name) = parse_name(&mut new_s);
+            if name.is_some() {
+                break AfterCommand::CommandSeparator();
+            }
+            match after_name {
+                AfterName::EscapeAtEndOfInput() => break AfterCommand::EscapeAtEndOfInput(),
+                AfterName::PonInputOpener(_index) => (),
+                AfterName::ParserInputEnd() => break AfterCommand::ParserInputEnd(),
+                AfterName::CommandSeparator() => break AfterCommand::CommandSeparator(),
+            }
+            *s = new_s;
+        },
+        AfterName::CommandSeparator() => AfterCommand::CommandSeparator(),
+        AfterName::EscapeAtEndOfInput() => AfterCommand::EscapeAtEndOfInput(),
+    };
+    let command = match name {
+        None => match NonEmpty::new(pon_inputs) {
+            None => None,
+            Some(pon_inputs) => Some(CommandKind::Unnamed(pon_inputs)),
+        },
+        Some(name) => {
+            pon_inputs.shrink_to_fit();
+            Some(CommandKind::Named(name, pon_inputs))
         }
-    };
-    let command = if name.is_none() && pon_inputs.is_empty() {
-        None
-    } else {
-        pon_inputs.shrink_to_fit();
-        Some(Positioned(Command(name, pon_inputs), index))
-    };
+    }
+    .map(|kind| Command(index, kind));
     (command, after)
 }
 
