@@ -1,4 +1,9 @@
-use crate::non_empty::NonEmpty;
+use crate::non_empty::NonEmptyVec;
+
+#[derive(Debug)]
+pub struct First<T>(pub T);
+#[derive(Debug)]
+pub struct Rest<T>(pub T);
 
 #[derive(Debug)]
 pub struct Index(pub usize);
@@ -17,8 +22,35 @@ impl<'a> ParserInput<'a> {
     }
 }
 
+enum WordCharResult {
+    Valid(char),
+    CommandSeparator(),
+    WordSeparator(),
+    PonInputOpener(Index),
+    ParserInputEnd(),
+    EscapeAtEndOfInput(),
+}
+fn word_char(s: &mut ParserInput) -> WordCharResult {
+    let index = s.idx;
+    match s.next() {
+        None => AfterWord::ParserInputEnd(),
+        Some(mut c) => {
+            match c {
+                '(' => AfterWord::PonInputOpener(Index(index)),
+                ';' | '\n' => break AfterWord::CommandSeparator(),
+                '\\' => match s.next() {
+                    None => break AfterWord::EscapeAtEndOfInput(),
+                    Some(escaped_c) => c = escaped_c,
+                },
+                _ if c.is_whitespace() => break AfterWord::WordSeparator(),
+                _ => (),
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
-pub struct Word(pub NonEmpty<String>);
+pub struct Word(pub NonEmptyVec<WordChar>);
 enum AfterWord {
     CommandSeparator(),
     WordSeparator(),
@@ -27,8 +59,8 @@ enum AfterWord {
     EscapeAtEndOfInput(),
 }
 fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
-    let mut word = String::new();
-    let after = loop {
+    let mut word = Vec::new();
+    let char = |mut s| {
         let index = s.idx;
         match s.next() {
             None => break AfterWord::ParserInputEnd(),
@@ -47,7 +79,12 @@ fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
             }
         }
     };
-    (NonEmpty::new(word).map(|word| Word(word)), after)
+    let after = loop {};
+    let iter = word.into_iter();
+    iter.next().map(|first| NonEmptyVec {
+        first,
+        rest: iter.collect(),
+    })
 }
 
 #[derive(Debug)]
