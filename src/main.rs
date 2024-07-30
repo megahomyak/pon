@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-mod interpreter;
 mod non_empty;
+mod interpreter;
 mod parser;
 
 struct Line(String);
