@@ -1,24 +1,31 @@
-use crate::non_empty::{NonEmptyString, NonEmptyVec};
+use crate::non_empty::{self, NonEmptyString, NonEmptyVec};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Index(pub usize);
 
 #[derive(Clone)]
 struct ParserInput<'a> {
-    idx: usize,
+    index: Index,
     s: &'a str,
 }
 impl<'a> ParserInput<'a> {
     fn next(&mut self) -> Option<char> {
-        unsafe { self.s.get_unchecked(self.idx..) }
+        unsafe { self.s.get_unchecked(self.index.0..) }
             .chars()
             .next()
-            .inspect(|c| self.idx += c.len_utf8())
+            .inspect(|c| self.index.0 += c.len_utf8())
     }
 }
 
 #[derive(Debug)]
-pub struct Word(pub NonEmptyString);
+pub struct Word {
+    pub characters: NonEmptyString,
+}
+impl PartialEq for Word {
+    fn eq(&self, other: &Self) -> bool {
+        self.characters == other.characters
+    }
+}
 enum AfterWord {
     CommandSeparator(),
     WordSeparator(),
@@ -27,14 +34,16 @@ enum AfterWord {
     EscapeAtEndOfInput(),
 }
 fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
-    let mut word = String::new();
+    struct First(Index, char);
+    let mut first = None;
+    let mut rest = String::new();
     let after = loop {
-        let index = s.idx;
+        let index = s.index;
         match s.next() {
             None => break AfterWord::ParserInputEnd(),
             Some(mut c) => {
                 match c {
-                    '(' => break AfterWord::PonInputOpener(Index(index)),
+                    '(' => break AfterWord::PonInputOpener(index),
                     ';' | '\n' => break AfterWord::CommandSeparator(),
                     '\\' => match s.next() {
                         None => break AfterWord::EscapeAtEndOfInput(),
@@ -43,15 +52,38 @@ fn word(s: &mut ParserInput) -> (Option<Word>, AfterWord) {
                     _ if c.is_whitespace() => break AfterWord::WordSeparator(),
                     _ => (),
                 }
-                word.push(c);
+                match first {
+                    None => first = Some(First(index, c)),
+                    Some(_) => rest.push(c),
+                }
             }
         }
     };
-    (NonEmptyString::from(word).map(|w| Word(w)), after)
+    (
+        first.map(|First(position, c)| {
+            rest.shrink_to_fit();
+            Word {
+                position,
+                characters: NonEmptyString {
+                    first: non_empty::First(c),
+                    rest: non_empty::Rest(rest),
+                },
+            }
+        }),
+        after,
+    )
 }
 
 #[derive(Debug)]
-pub struct Name(pub NonEmptyVec<Word>);
+pub struct Name {
+    pub position: Index,
+    pub words: NonEmptyVec<Word>,
+}
+impl PartialEq for Name {
+    fn eq(&self, other: &Self) -> bool {
+        other.words == self.words
+    }
+}
 enum AfterName {
     CommandSeparator(),
     PonInputOpener(Index),
@@ -59,11 +91,16 @@ enum AfterName {
     EscapeAtEndOfInput(),
 }
 fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
-    let mut name = Vec::new();
+    struct First(Index, Word);
+    let mut first = None;
+    let mut rest = Vec::new();
     let after = loop {
         let (word, after_word) = word(s);
         if let Some(word) = word {
-            name.push(word);
+            match first {
+                None => first = Some(First(word.position, word)),
+                Some(_) => rest.push(word),
+            }
         }
         match after_word {
             AfterWord::EscapeAtEndOfInput() => break AfterName::EscapeAtEndOfInput(),
@@ -73,18 +110,38 @@ fn name(s: &mut ParserInput) -> (Option<Name>, AfterName) {
             AfterWord::WordSeparator() => (),
         }
     };
-    (NonEmptyVec::from(name).map(|name| Name(name)), after)
+    (
+        first.map(|First(position, word)| {
+            rest.shrink_to_fit();
+            Name {
+                position,
+                words: NonEmptyVec {
+                    first: non_empty::First(word),
+                    rest: non_empty::Rest(rest),
+                },
+            }
+        }),
+        after,
+    )
 }
 
 #[derive(Debug)]
-pub struct PonInput(pub String);
+pub struct Positioned<T> {
+    pub position: Index,
+    pub entity: T,
+}
+
+#[derive(Debug)]
+pub struct PonInput {
+    pub content: String,
+}
 enum AfterPonInput {
     PonInputTerminator(),
     ParserInputEnd(),
     EscapeAtEndOfInput(),
 }
-fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
-    let mut input = String::new();
+fn input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
+    let mut content = String::new();
     let mut nesting_level = 0;
     let after = loop {
         match s.next() {
@@ -101,27 +158,39 @@ fn pon_input(s: &mut ParserInput) -> (PonInput, AfterPonInput) {
                     '\\' => match s.next() {
                         None => break AfterPonInput::EscapeAtEndOfInput(),
                         Some(escaped_c) => {
-                            input.push(c);
+                            content.push(c);
                             c = escaped_c;
                         }
                     },
                     _ => (),
                 }
-                input.push(c);
+                content.push(c);
             }
         }
     };
-    input.shrink_to_fit();
-    (PonInput(input), after)
+    content.shrink_to_fit();
+    (PonInput { content }, after)
 }
 
 #[derive(Debug)]
-pub enum CommandKind {
-    Named(Name, Vec<PonInput>),
-    Unnamed(NonEmptyVec<PonInput>),
+pub struct NamedCommand {
+    name: Name,
+    inputs: Vec<Positioned<PonInput>>,
 }
 #[derive(Debug)]
-pub struct Command(pub Index, pub CommandKind);
+pub struct UnnamedCommand {
+    inputs: NonEmptyVec<Positioned<PonInput>>,
+}
+#[derive(Debug)]
+pub enum CommandKind {
+    Named(NamedCommand),
+    Unnamed(UnnamedCommand),
+}
+#[derive(Debug)]
+pub struct Command {
+    pub position: Index,
+    pub kind: CommandKind,
+}
 enum AfterCommand {
     CommandSeparator(),
     MissingInputTerminator { opener_index: Index },
@@ -130,21 +199,23 @@ enum AfterCommand {
 }
 fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
     use name as parse_name;
-    let index = Index(s.idx);
     let (name, after_name) = parse_name(s);
-    let mut pon_inputs = Vec::new();
+    let mut inputs = Vec::new();
     let after = match after_name {
         AfterName::ParserInputEnd() => AfterCommand::ParserInputEnd(),
         AfterName::PonInputOpener(opener_index) => loop {
-            let (pon_input, after_pon_input) = pon_input(s);
-            match after_pon_input {
+            let (input, after_input) = input(s);
+            match after_input {
                 AfterPonInput::ParserInputEnd() => {
                     break AfterCommand::MissingInputTerminator { opener_index }
                 }
                 AfterPonInput::EscapeAtEndOfInput() => break AfterCommand::EscapeAtEndOfInput(),
                 AfterPonInput::PonInputTerminator() => (),
             }
-            pon_inputs.push(pon_input);
+            inputs.push(Positioned {
+                position: opener_index,
+                entity: input,
+            });
             let mut new_s = s.clone();
             let (name, after_name) = parse_name(&mut new_s);
             if name.is_some() {
@@ -162,16 +233,31 @@ fn command(s: &mut ParserInput) -> (Option<Command>, AfterCommand) {
         AfterName::EscapeAtEndOfInput() => AfterCommand::EscapeAtEndOfInput(),
     };
     let command = match name {
-        None => match NonEmptyVec::from(pon_inputs) {
-            None => None,
-            Some(pon_inputs) => Some(CommandKind::Unnamed(pon_inputs)),
-        },
-        Some(name) => {
-            pon_inputs.shrink_to_fit();
-            Some(CommandKind::Named(name, pon_inputs))
+        None => {
+            let mut inputs = inputs.into_iter();
+            inputs.next().map(|input| {
+                let mut rest: Vec<_> = inputs.collect();
+                rest.shrink_to_fit();
+                let position = input.position;
+                Command {
+                    kind: CommandKind::Unnamed(UnnamedCommand {
+                        inputs: NonEmptyVec {
+                            first: non_empty::First(input),
+                            rest: non_empty::Rest(rest),
+                        },
+                    }),
+                    position,
+                }
+            })
         }
-    }
-    .map(|kind| Command(index, kind));
+        Some(name) => {
+            inputs.shrink_to_fit();
+            Some(Command {
+                position: name.position,
+                kind: CommandKind::Named(NamedCommand { name, inputs }),
+            })
+        }
+    };
     (command, after)
 }
 
@@ -184,7 +270,7 @@ pub enum AfterProgram {
     MissingInputTerminator { opener_index: Index },
 }
 pub fn program(s: &str) -> (Program, AfterProgram) {
-    let mut s = ParserInput { s, idx: 0 };
+    let mut s = ParserInput { s, index: Index(0) };
     let mut commands = Vec::new();
     let after = loop {
         let (command, after_command) = command(&mut s);
