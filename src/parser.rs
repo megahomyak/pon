@@ -2,36 +2,95 @@ use crate::non_empty::{NonEmptyString, NonEmptyVec};
 
 #[derive(Debug)]
 pub struct Positioned<T> {
-    pub position: parser_input::Index,
+    pub position: parser_input::position::Position,
     pub entity: T,
 }
 
 pub mod parser_input {
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub struct Index(pub usize);
+    pub mod position {
+        #[derive(Debug, Clone, Copy)]
+        pub struct Position<'a> {
+            pub(super) source: &'a str,
+            pub(super) index: usize,
+        }
 
-    pub struct Part {
-        pub position: Index,
+        pub struct MarkedLine<'a> {
+            pub before_mark: &'a str,
+            pub rest: &'a str,
+        }
+
+        pub struct Computed<'a> {
+            pub row_number: usize,
+            pub column_number: usize,
+            pub line: MarkedLine<'a>,
+        }
+
+        impl<'a> Position<'a> {
+            pub fn compute(&self) -> Computed {
+                let mut column_number = 0;
+                let mut row_number = 1;
+                let mut line_beginning_index = 0;
+                let mut before_mark = None;
+                let mut source = super::Input::new(&self.source);
+                let mut rest = loop {
+
+                }
+                for part in source {
+                    if part.position.index == self.index {
+                        before_mark = Some(unsafe {
+                            self.source.get_unchecked(line_beginning_index..self.index)
+                        });
+                    }
+                    if part.character == '\n' {
+                        if before_mark.is_some() {
+                            return 
+                        }
+                    }
+                }
+                Computed {
+                    column_number,
+                    row_number,
+                    line,
+                }
+            }
+        }
+    }
+
+    pub(super) struct Part<'a> {
+        pub position: position::Position<'a>,
         pub character: char,
     }
 
     #[derive(Clone)]
-    pub struct Input<'a>(std::str::CharIndices<'a>);
+    pub(super) struct Input<'a> {
+        source: &'a str,
+        index: usize,
+    }
 
     impl<'a> Input<'a> {
-        pub fn new(input: &'a str) -> Self {
-            Self(input.char_indices())
+        pub fn new(source: &'a str) -> Self {
+            Self { source, index: 0 }
         }
     }
 
     impl<'a> Iterator for Input<'a> {
-        type Item = Part;
+        type Item = Part<'a>;
 
         fn next(&mut self) -> Option<Self::Item> {
-            self.0.next().map(|(index, content)| Part {
-                position: Index(index),
-                character: content,
-            })
+            unsafe { self.source.get_unchecked(self.index..) }
+                .chars()
+                .next()
+                .map(|character| {
+                    let part = Part {
+                        character,
+                        position: position::Position {
+                            index: self.index,
+                            source: &self.source,
+                        },
+                    };
+                    self.index += character.len_utf8();
+                    part
+                })
         }
     }
 }
