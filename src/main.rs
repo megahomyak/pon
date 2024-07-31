@@ -8,10 +8,14 @@ enum LineReadingResult {
     Success(Line),
 }
 
-fn read_line() -> LineReadingResult {
+struct IsAppending(bool);
+
+fn read_line(is_appending: IsAppending) -> LineReadingResult {
     use std::io::Write;
     let mut buffer = String::new();
-    std::io::stdout().write(b">>> ").unwrap();
+    std::io::stdout()
+        .write(if is_appending.0 { b"... " } else { b">>> " })
+        .unwrap();
     std::io::stdout().flush().unwrap();
     if std::io::stdin().read_line(&mut buffer).unwrap() == 0 {
         LineReadingResult::TerminationRequested()
@@ -20,17 +24,19 @@ fn read_line() -> LineReadingResult {
     }
 }
 
-struct ProgramText(String);
+struct ProgramText {
+    content: String,
+}
 
 enum ProgramReadingResult {
     TerminationRequested(),
-    Success(parser::Program, ProgramText),
+    Success(parser::program::Program, ProgramText),
 }
 
 fn read_program() -> ProgramReadingResult {
     let mut lines_buffer = Vec::new();
     loop {
-        let line = match read_line() {
+        let line = match read_line(IsAppending(!lines_buffer.is_empty())) {
             LineReadingResult::Success(Line(line)) => line,
             LineReadingResult::TerminationRequested() => {
                 return ProgramReadingResult::TerminationRequested()
@@ -40,13 +46,19 @@ fn read_program() -> ProgramReadingResult {
         for line in lines_buffer.iter().chain(std::iter::once(&line)) {
             full_program.push_str(line);
         }
-        let (program, after_program) = parser::program(&full_program);
+        let (program, after_program) =
+            parser::program::parse(&mut parser::parser_input::Input::new(&full_program));
         match after_program {
-            parser::AfterProgram::ParserInputEnd() => {
-                return ProgramReadingResult::Success(program, ProgramText(full_program))
+            parser::program::After::ParserInputEnd() => {
+                return ProgramReadingResult::Success(
+                    program,
+                    ProgramText {
+                        content: full_program,
+                    },
+                )
             }
-            parser::AfterProgram::EscapeAtEndOfInput() => unreachable!(),
-            parser::AfterProgram::MissingInputTerminator { opener_index: _ } => {
+            parser::program::After::EscapeAtEndOfInput() => unreachable!(),
+            parser::program::After::MissingInputTerminator { opener_index: _ } => {
                 lines_buffer.push(line);
                 continue;
             }
@@ -54,59 +66,104 @@ fn read_program() -> ProgramReadingResult {
     }
 }
 
-struct ErrorMessage<'a>(&'a str);
+struct ErrorPrinter {
+    was_activated: bool,
+}
 
-fn print_error(program: &ProgramText, position: parser::Index, message: ErrorMessage) {
-    let mut total_index = 0;
-    let mut line_num = 1;
-    let mut line_text = &program.0[..];
-    let column = 'column: loop {
-        for new_line_excerpt in program.0.split('\n') {
-            line_text = new_line_excerpt;
-            line_num += 1;
-            if total_index == 0 {
-                total_index += line_text.len();
-            } else {
-                total_index += 1 + line_text.len();
+impl ErrorPrinter {
+    fn print_error(
+        &mut self,
+        program: &ProgramText,
+        position: parser::parser_input::Index,
+        message: &str,
+    ) {
+        self.was_activated = true;
+        let mut line = 1;
+        let mut column = 1;
+        let mut line_content = &program.content[..];
+        for part in parser::parser_input::Input::new(&program.content) {
+            if part.position == position {
+                break;
             }
-            if total_index > position.0 {
-                break 'column total_index - position.0;
+            if part.character == '\n' {
+                line_content = &program.content[part.position.0 + part.character.len_utf8()..];
+                column = 1;
+                line += 1;
+            } else {
+                column += 1;
             }
         }
-        break line_text.len();
-    };
-    eprintln!("An error occured at line {}, column {}: {}", line_num, column, message.0);
-    eprintln!("");
-    eprintln!("  {line_text}");
-    eprint!("  ");
-    for _ in 1..column {
-        eprint!(" ");
+        let line_content = line_content.split('\n').next().unwrap_or("");
+        eprintln!(
+            "[!] An error occured at line {}, column {}: {}",
+            line, column, message
+        );
+        eprintln!("");
+        eprintln!("  {line_content}");
+        eprint!("  ");
+        for _ in 1..column {
+            eprint!(" ");
+        }
+        eprintln!("^");
     }
-    eprintln!("^");
 }
 
 fn main() {
     let mut interpreter = interpreter::Interpreter::new();
+    interpreter.set(
+        parser::name::Name {
+            words: non_empty::NonEmptyVec {
+                first: parser::word::Word {
+                    characters: non_empty::NonEmptyString {
+                        first: 's',
+                        rest: String::from("tring"),
+                    },
+                },
+                rest: Vec::new(),
+            },
+        },
+        interpreter::Callable(Box::new(
+            |input: &parser::pon_input::Input, _scope: &mut Option<interpreter::Scope>| {
+                interpreter::make_object(interpreter::RuntimeString {
+                    content: input.content.clone(),
+                })
+            },
+        )),
+    );
     loop {
         let (program, program_text) = match read_program() {
             ProgramReadingResult::Success(program, program_text) => (program, program_text),
             ProgramReadingResult::TerminationRequested() => {
-                println!("Terminating as requested.");
+                println!("\nTerminating as requested.");
                 return;
             }
         };
-        let mut any_errors = false;
+        let mut error_printer = ErrorPrinter {
+            was_activated: false,
+        };
         for command in program.0 {
-            match interpreter::convert(command) {
-                Ok(program) => {
-                    if !any_errors {
-                        interpreter.interpret(program);
+            match command {
+                parser::command::Command::Named(command) => {
+                    if !error_printer.was_activated {
+                        let object = interpreter.execute(&command);
+                        if let Some(error) = object
+                            .clone()
+                            .borrow_mut()
+                            .downcast_mut::<interpreter::Error>()
+                        {
+                            error_printer.print_error(&program_text, error.position, error.text);
+                        } else {
+                            println!("{}", object.borrow().to_string())
+                        }
                     }
                 }
-                Err(interpreter::ConversionError::NameMissing(position)) => {
-                    print_error(&program_text, position, ErrorMessage("name missing"));
-                    any_errors = true;
-                },
+                parser::command::Command::Unnamed(command) => {
+                    error_printer.print_error(
+                        &program_text,
+                        command.inputs.first.position,
+                        "name missing",
+                    );
+                }
             }
         }
     }

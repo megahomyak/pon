@@ -1,16 +1,14 @@
-use crate::non_empty::{self, NonEmptyString, NonEmptyVec};
-
-#[derive(Debug, Clone, Copy)]
-pub struct Index(pub usize);
+use crate::non_empty::{NonEmptyString, NonEmptyVec};
 
 #[derive(Debug)]
 pub struct Positioned<T> {
-    pub position: Index,
+    pub position: parser_input::Index,
     pub entity: T,
 }
 
-mod parser_input {
-    use super::*;
+pub mod parser_input {
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct Index(pub usize);
 
     pub struct Part {
         pub position: Index,
@@ -37,23 +35,24 @@ mod parser_input {
         }
     }
 }
-use parser_input::Input as ParserInput;
 
-mod word {
+pub mod word {
     use super::*;
 
     #[derive(Debug, PartialEq)]
     pub struct Word {
         pub characters: NonEmptyString,
     }
-    pub enum After {
+    pub(super) enum After {
         CommandSeparator(),
         WordSeparator(),
-        PonInputOpener(Index),
+        PonInputOpener(parser_input::Index),
         ParserInputEnd(),
         EscapeAtEndOfInput(),
     }
-    pub fn parse(parser_input: &mut ParserInput) -> (Option<Positioned<Word>>, After) {
+    pub(super) fn parse(
+        parser_input: &mut parser_input::Input,
+    ) -> (Option<Positioned<Word>>, After) {
         let mut first = None;
         let mut rest = String::new();
         let after = loop {
@@ -84,8 +83,8 @@ mod word {
                     position: first.position,
                     entity: Word {
                         characters: NonEmptyString {
-                            first: non_empty::First(first.character),
-                            rest: non_empty::Rest(rest),
+                            first: first.character,
+                            rest,
                         },
                     },
                 }
@@ -95,20 +94,22 @@ mod word {
     }
 }
 
-mod name {
+pub mod name {
     use super::*;
 
     #[derive(Debug, PartialEq)]
     pub struct Name {
         pub words: NonEmptyVec<word::Word>,
     }
-    pub enum After {
+    pub(super) enum After {
         CommandSeparator(),
-        PonInputOpener(Index),
+        PonInputOpener(parser_input::Index),
         ParserInputEnd(),
         EscapeAtEndOfInput(),
     }
-    pub fn parse(parser_input: &mut ParserInput) -> (Option<Positioned<Name>>, After) {
+    pub(super) fn parse(
+        parser_input: &mut parser_input::Input,
+    ) -> (Option<Positioned<Name>>, After) {
         let mut first = None;
         let mut rest = Vec::new();
         let after = loop {
@@ -134,8 +135,8 @@ mod name {
                     position: first.position,
                     entity: Name {
                         words: NonEmptyVec {
-                            first: non_empty::First(first.entity),
-                            rest: non_empty::Rest(rest),
+                            first: first.entity,
+                            rest,
                         },
                     },
                 }
@@ -145,19 +146,19 @@ mod name {
     }
 }
 
-mod pon_input {
+pub mod pon_input {
     use super::*;
 
     #[derive(Debug)]
     pub struct Input {
         pub content: String,
     }
-    pub enum After {
+    pub(super) enum After {
         PonInputTerminator(),
         ParserInputEnd(),
         EscapeAtEndOfInput(),
     }
-    pub fn parse(parser_input: &mut ParserInput) -> (Input, After) {
+    pub(super) fn parse(parser_input: &mut parser_input::Input) -> (Input, After) {
         let mut content = String::new();
         let mut nesting_level = 0;
         let after = loop {
@@ -190,30 +191,30 @@ mod pon_input {
     }
 }
 
-mod command {
+pub mod command {
     use super::*;
 
     #[derive(Debug)]
     pub struct Named {
-        name: Positioned<name::Name>,
-        inputs: Vec<Positioned<pon_input::Input>>,
+        pub name: Positioned<name::Name>,
+        pub inputs: Vec<Positioned<pon_input::Input>>,
     }
     #[derive(Debug)]
     pub struct Unnamed {
-        inputs: NonEmptyVec<Positioned<pon_input::Input>>,
+        pub inputs: NonEmptyVec<Positioned<pon_input::Input>>,
     }
     #[derive(Debug)]
     pub enum Command {
         Named(Named),
         Unnamed(Unnamed),
     }
-    pub enum After {
+    pub(super) enum After {
         CommandSeparator(),
-        MissingInputTerminator { opener_index: Index },
+        MissingInputTerminator { opener_index: parser_input::Index },
         EscapeAtEndOfInput(),
         ParserInputEnd(),
     }
-    pub fn parse(parser_input: &mut ParserInput) -> (Option<Command>, After) {
+    pub(super) fn parse(parser_input: &mut parser_input::Input) -> (Option<Command>, After) {
         let (name, after_name) = name::parse(parser_input);
         let mut inputs = Vec::new();
         let after = match after_name {
@@ -250,14 +251,11 @@ mod command {
         let command = match name {
             None => {
                 let mut inputs = inputs.into_iter();
-                inputs.next().map(|input| {
+                inputs.next().map(|first| {
                     let mut rest: Vec<_> = inputs.collect();
                     rest.shrink_to_fit();
                     Command::Unnamed(Unnamed {
-                        inputs: NonEmptyVec {
-                            first: non_empty::First(input),
-                            rest: non_empty::Rest(rest),
-                        },
+                        inputs: NonEmptyVec { first, rest },
                     })
                 })
             }
@@ -279,13 +277,12 @@ pub mod program {
     pub enum After {
         EscapeAtEndOfInput(),
         ParserInputEnd(),
-        MissingInputTerminator { opener_index: Index },
+        MissingInputTerminator { opener_index: parser_input::Index },
     }
-    pub fn parse(parser_input: &str) -> (Program, After) {
-        let mut parser_input = ParserInput::new(parser_input);
+    pub fn parse(parser_input: &mut parser_input::Input) -> (Program, After) {
         let mut commands = Vec::new();
         let after = loop {
-            let (command, after_command) = command::parse(&mut parser_input);
+            let (command, after_command) = command::parse(parser_input);
             if let Some(command) = command {
                 commands.push(command);
             }

@@ -1,44 +1,48 @@
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use crate::parser;
 
-pub struct Command(parser::NamedCommand);
-
-pub enum ConversionError {
-    NameMissing(parser::Index),
-}
-pub fn convert(old_command: parser::Command) -> Result<Command, ConversionError> {
-    let (name, pon_inputs) = match old_command.kind {
-        parser::CommandKind::Named(command) => (name, pon_inputs),
-        parser::CommandKind::Unnamed { inputs: _ } => return Err(ConversionError::NameMissing(old_command.position))
-        // parser::CommandKind::Named(name, pon_inputs) => (name, pon_inputs),
-        // parser::CommandKind::Unnamed(..) => return Err(ConversionError::NameMissing(index)),
-    };
-    Ok(Command(name, pon_inputs))
-}
-
-pub trait Object: downcast_rs::Downcast {}
+pub trait Object: downcast_rs::Downcast + ToString {}
 downcast_rs::impl_downcast!(Object);
-#[derive(Clone)]
-pub struct SharedObject(Rc<dyn Object>);
-impl SharedObject {
-    fn new(o: impl Object) -> Self {
-        Self(Rc::new(o))
-    }
+pub type SharedObject = Rc<RefCell<dyn Object>>;
+pub fn make_object(o: impl Object) -> SharedObject {
+    Rc::new(RefCell::new(o))
 }
 
 pub struct Error {
-    text: &'static str,
-    position: parser::Index,
+    pub text: &'static str,
+    pub position: parser::parser_input::Index,
+}
+impl ToString for Error {
+    fn to_string(&self) -> String {
+        self.text.into()
+    }
 }
 impl Object for Error {}
 
-pub struct Callable(pub Box<dyn FnMut() -> SharedObject>);
+pub struct Callable(
+    pub Box<dyn FnMut(&parser::pon_input::Input, &mut Option<Scope>) -> SharedObject>,
+);
+impl ToString for Callable {
+    fn to_string(&self) -> String {
+        "Callable".into()
+    }
+}
 impl Object for Callable {}
+
+pub struct RuntimeString {
+    pub content: String,
+}
+impl ToString for RuntimeString {
+    fn to_string(&self) -> String {
+        self.content.clone()
+    }
+}
+impl Object for RuntimeString {}
 
 pub struct Scope {
     parent: Option<Box<Scope>>,
-    name: parser::Name,
+    name: parser::name::Name,
     value: SharedObject,
 }
 
@@ -51,7 +55,7 @@ impl Interpreter {
         Self { scope: None }
     }
 
-    fn get(&self, name: &parser::Name) -> Option<SharedObject> {
+    fn get(&self, name: &parser::name::Name) -> Option<SharedObject> {
         let scope = &self.scope;
         while let Some(scope) = scope {
             if scope.name.words == name.words {
@@ -61,25 +65,31 @@ impl Interpreter {
         None
     }
 
-    pub fn set(&mut self, name: parser::Name, value: impl Object) {
+    pub fn set(&mut self, name: parser::name::Name, value: impl Object) {
         let parent = self.scope.take().map(|scope| Box::new(scope));
         self.scope = Some(Scope {
             name,
-            value: SharedObject::new(value),
+            value: make_object(value),
             parent,
         });
     }
 
-    pub fn execute(&mut self, command: Command) -> SharedObject {
-        let Command(name, inputs) = command;
-        let Some(obj) = self.get(&name) else {
-            return SharedObject::new(Error {
+    pub fn execute(&mut self, command: &parser::command::Named) -> SharedObject {
+        let Some(mut obj) = self.get(&command.name.entity) else {
+            return make_object(Error {
                 text: "undefined name",
-                position: name.position,
+                position: command.name.position,
             });
         };
-        for input in inputs {
-
+        for input in &command.inputs {
+            if let Some(callable) = obj.clone().borrow_mut().downcast_mut::<Callable>() {
+                obj = callable.0(&input.entity, &mut self.scope);
+            } else {
+                return make_object(Error {
+                    text: "the called object is not a function",
+                    position: input.position,
+                });
+            }
         }
         obj
     }
