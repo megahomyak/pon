@@ -109,27 +109,6 @@ impl ErrorPrinter {
 }
 
 fn main() {
-    let mut interpreter = interpreter::Interpreter::new();
-    interpreter.set(
-        parser::name::Name {
-            words: non_empty::NonEmptyVec {
-                first: parser::word::Word {
-                    characters: non_empty::NonEmptyString {
-                        first: 's',
-                        rest: String::from("tring"),
-                    },
-                },
-                rest: Vec::new(),
-            },
-        },
-        interpreter::Callable(Box::new(
-            |input: &parser::pon_input::Input, _scope: &mut Option<interpreter::Scope>| {
-                interpreter::make_object(interpreter::RuntimeString {
-                    content: input.content.clone(),
-                })
-            },
-        )),
-    );
     loop {
         let (program, program_text) = match read_program() {
             ProgramReadingResult::Success(program, program_text) => (program, program_text),

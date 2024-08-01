@@ -1,8 +1,8 @@
 use crate::non_empty::{NonEmptyString, NonEmptyVec};
 
 #[derive(Debug)]
-pub struct Positioned<T> {
-    pub position: parser_input::position::Position,
+pub struct Positioned<'a, T> {
+    pub position: parser_input::position::Position<'a>,
     pub entity: T,
 }
 
@@ -14,8 +14,22 @@ pub mod parser_input {
             pub(super) index: usize,
         }
 
+        pub struct CountedLine<'a> {
+            content: &'a str,
+            chars_amount: usize,
+        }
+
+        impl<'a> CountedLine<'a> {
+            pub fn content(&self) -> &'a str {
+                self.content
+            }
+            pub fn chars_amount(&self) -> usize {
+                self.chars_amount
+            }
+        }
+
         pub struct MarkedLine<'a> {
-            pub before_mark: &'a str,
+            pub before_mark: CountedLine<'a>,
             pub rest: &'a str,
         }
 
@@ -30,16 +44,21 @@ pub mod parser_input {
                 let mut column_number = 0;
                 let mut row_number = 1;
                 let mut line_beginning_index = 0;
-                let mut before_mark = None;
+                let mut before_mark = unsafe { self.source.get_unchecked(..self.index) };
                 let mut source = super::Input::new(&self.source);
                 let mut rest = loop {
+                    match source.next() {
+                        None => break unsafe { self.source.get_unchecked(self.index..) },
+                        Some(part) => if part.character == '\n' {
 
+                        }
+                    }
                 }
                 for part in source {
                     if part.position.index == self.index {
-                        before_mark = Some(unsafe {
+                        before_mark = unsafe {
                             self.source.get_unchecked(line_beginning_index..self.index)
-                        });
+                        };
                     }
                     if part.character == '\n' {
                         if before_mark.is_some() {
