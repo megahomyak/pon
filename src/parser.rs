@@ -14,58 +14,31 @@ pub mod parser_input {
             pub(super) index: usize,
         }
 
-        pub struct CountedLine<'a> {
-            content: &'a str,
-            chars_amount: usize,
-        }
-
-        impl<'a> CountedLine<'a> {
-            pub fn content(&self) -> &'a str {
-                self.content
-            }
-            pub fn chars_amount(&self) -> usize {
-                self.chars_amount
-            }
-        }
-
-        pub struct MarkedLine<'a> {
-            pub before_mark: CountedLine<'a>,
-            pub rest: &'a str,
-        }
-
         pub struct Computed<'a> {
             pub row_number: usize,
             pub column_number: usize,
-            pub line: MarkedLine<'a>,
+            pub line: &'a str,
         }
 
         impl<'a> Position<'a> {
             pub fn compute(&self) -> Computed {
                 let mut column_number = 0;
                 let mut row_number = 1;
-                let mut line_beginning_index = 0;
-                let mut before_mark = unsafe { self.source.get_unchecked(..self.index) };
-                let mut source = super::Input::new(&self.source);
-                let mut rest = loop {
-                    match source.next() {
-                        None => break unsafe { self.source.get_unchecked(self.index..) },
-                        Some(part) => if part.character == '\n' {
-
-                        }
-                    }
-                }
-                for part in source {
-                    if part.position.index == self.index {
-                        before_mark = unsafe {
-                            self.source.get_unchecked(line_beginning_index..self.index)
-                        };
-                    }
+                let mut line = self.source;
+                let mut source_iterator = super::Input::new(&self.source);
+                while let Some(part) = source_iterator.next() {
                     if part.character == '\n' {
-                        if before_mark.is_some() {
-                            return 
-                        }
+                        row_number += 1;
+                        column_number = 0;
+                        line = unsafe { self.source.get_unchecked(source_iterator.index..) };
+                    } else {
+                        column_number += 1;
+                    }
+                    if part.position.index == self.index {
+                        break;
                     }
                 }
+                line = line.split('\n').next().unwrap_or("");
                 Computed {
                     column_number,
                     row_number,
