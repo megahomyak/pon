@@ -1,12 +1,30 @@
 use crate::non_empty::{NonEmptyString, NonEmptyVec};
 
 #[derive(Debug)]
-pub struct Positioned<'a, T> {
-    pub position: parser_input::position::Position<'a>,
+pub struct Positioned<P, T> {
+    pub position: P,
     pub entity: T,
 }
 
 pub mod parser_input {
+    pub mod part {
+    pub enum Kind {
+        CommandSeparator(),
+        WordSeparator(),
+        PonInputOpener(),
+        PonInputCloser(),
+        ParserInputEnd(),
+    }
+
+    pub struct Part<P, C> {
+        pub position: P,
+        pub content: C,
+        pub kind: Kind,
+    }
+    }
+
+    trait Input<P, C>: Clone + Iterator<Item = Part<P, C>> {}
+
     pub mod position {
         #[derive(Debug, Clone, Copy)]
         pub struct Position<'a> {
