@@ -12,10 +12,15 @@ pub(super) enum After<P> {
     PonInputOpener { position: P },
     ParserInputEnd(),
 }
-pub(super) fn parse<P, C>(
-    mut parser_input: impl parser_input::Input<P, C>,
-) -> (Option<Positioned<P, Word<C>>>, After<P>) {
-    let characters = non_empty_vec::Incomplete::new();
+pub(super) fn parse<I: parser_input::Input>(
+    mut parser_input: I,
+) -> (Option<Positioned<I::Part, Word<I::Part::Content>>>, After<I::Part::Position>) {
+    let mut first = None;
+    let mut rest = I::Part::Container::default();
+    let mut push = |part| match first {
+        None => first = Some(part),
+        Some(_) => rest.extend(part.content),
+    };
     let after = loop {
         match parser_input.next() {
             None => break After::ParserInputEnd(),
@@ -23,7 +28,7 @@ pub(super) fn parse<P, C>(
                 match part.kind {
                     parser_input::part::Kind::PonInputOpener() => {
                         break After::PonInputOpener {
-                            position: part.position,
+                            position: part.position(),
                         }
                     }
                     parser_input::part::Kind::CommandSeparator() => {
@@ -33,12 +38,7 @@ pub(super) fn parse<P, C>(
                         None => (),
                         Some(escaped_part) => {
                             match escaped_part.kind {
-                                parser_input::part::Kind::Literal() => {
-                                    characters.push(Positioned {
-                                        position: part.position,
-                                        entity: part.content,
-                                    })
-                                }
+                                parser_input::part::Kind::Literal() => push(part),
                                 _ => (),
                             }
                             part = escaped_part
@@ -47,7 +47,7 @@ pub(super) fn parse<P, C>(
                     parser_input::part::Kind::WordSeparator() => break After::WordSeparator(),
                     _ => (),
                 }
-                characters.push(Positioned {  });
+                push(part);
             }
         }
     };
@@ -57,8 +57,8 @@ pub(super) fn parse<P, C>(
             Positioned {
                 position: first.position,
                 entity: Word {
-                    characters: NonEmptyString {
-                        first: first.character,
+                    characters: NonEmptyVec {
+                        first: first.content,
                         rest,
                     },
                 },

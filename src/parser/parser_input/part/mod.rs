@@ -7,8 +7,12 @@ pub enum Kind {
     Literal(),
 }
 
-pub struct Part<P, C> {
-    pub position: P,
-    pub content: C,
-    pub kind: Kind,
+pub trait Part {
+    type Content;
+    type Position;
+    type Container: Extend<Self::Content> + Default;
+
+    fn position(&self) -> Self::Position;
+    fn content(&self) -> Self::Content;
+    fn kind(&self) -> Kind;
 }
