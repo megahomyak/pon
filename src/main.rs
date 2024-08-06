@@ -1,5 +1,4 @@
-mod interpreter;
-mod non_empty;
+mod non_empty_vec;
 mod parser;
 
 struct Line(String);
