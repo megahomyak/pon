@@ -6,8 +6,15 @@ pub struct Next<T: Input> {
     pub rest: T,
 }
 
-pub trait Input: Clone + Iterator<Item = Self::Part> {
-    type Part: part::Part;
+pub trait Input: Clone {
+    type PartContent;
+    type PartPosition;
+    type PartContainer: Extend<Self::PartContent> + Default;
+    type Part: part::Part<
+        Content = Self::PartContent,
+        Position = Self::PartPosition,
+        Container = Self::PartContainer,
+    >;
 
     fn next(self) -> Option<Next<Self>>;
 }

@@ -1,7 +1,7 @@
 pub mod parser_input;
 pub mod program;
 
-use crate::non_empty_vec::{NonEmptyString, NonEmptyVec};
+use crate::non_empty::{NonEmptyString, NonEmptyVec};
 
 #[derive(Debug)]
 pub struct Positioned<P, T> {

@@ -1,20 +1,23 @@
-use crate::non_empty_vec::{self, NonEmptyVec};
+use crate::non_empty::NonEmpty;
+use crate::parser::parser_input::part;
 use crate::parser::parser_input;
 use crate::parser::Positioned;
 
-#[derive(Debug, PartialEq)]
-pub struct Word<C> {
-    pub characters: NonEmptyVec<C>,
+type Position<I: parser_input::Input> = <I::Part as part::Part>::Position;
+
+#[derive(PartialEq, Eq)]
+pub struct Word<I: parser_input::Input> {
+    pub characters: NonEmpty<I>,
 }
-pub(super) enum After<P> {
+pub(super) enum After<I: parser_input::Input> {
     CommandSeparator(),
     WordSeparator(),
-    PonInputOpener { position: P },
+    PonInputOpener { position: <I::Part as part::Part>::Position },
     ParserInputEnd(),
 }
 pub(super) fn parse<I: parser_input::Input>(
     mut parser_input: I,
-) -> (Option<Positioned<I::Part, Word<I::Part::Content>>>, After<I::Part::Position>) {
+) -> (Option<Positioned<<I::Part as part::Part>::Content, Word<I::Part::Content>>>, After<I::Part::Position>) {
     let mut first = None;
     let mut rest = I::Part::Container::default();
     let mut push = |part| match first {
