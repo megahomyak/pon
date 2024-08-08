@@ -1,68 +1,47 @@
-pub mod parser_input {
-    pub struct Next<P, R> {
-        pub part: P,
-        pub rest: R,
+pub mod parser_input {}
+
+pub mod non_empty_string {
+    pub struct NonEmptyString {
+        content: String,
     }
-    pub trait ParserInput: Sized {
-        type Part: part::Part;
 
-        fn next(self) -> Option<Next<Self::Part, Self>>;
-    }
-    pub mod part {
-        use super::*;
-
-        pub mod container {
-            use super::*;
-
-            pub trait Container: Sized {
-                type NonEmpty;
-                type Item;
-
-                fn push(&mut self, item: Self::Item);
-                fn as_non_empty(self) -> Result<Self::NonEmpty, Self>;
+    impl NonEmptyString {
+        pub fn new(content: String) -> Result<Self, String> {
+            if content.is_empty() {
+                Err(content)
+            } else {
+                Ok(Self { content })
             }
         }
-        pub enum Kind {
-            WordSeparator(),
-            InvocationInputOpener(),
-            InvocationInputCloser(),
-            Escape(),
-            Literal(),
-        }
-        pub trait Part {
-            type Container: container::Container<Item = Self>;
-            type Content;
-            type Position;
 
-            fn content(&self) -> Self::Content;
-            fn position(&self) -> Self::Position;
-            fn kind(&self) -> Kind;
+        pub fn first(&self) -> char {
+            return unsafe { self.content.chars().next().unwrap_unchecked() };
         }
-        // The lines below were added for short types
-        pub type Position<I: ParserInput> = <I::Part as Part>::Position;
-        pub type Container<I: ParserInput> = <I::Part as Part>::Container;
-        pub type Content<I: ParserInput> = <I::Part as Part>::Content;
+
+        pub fn rest(&self) -> &str {
+            return unsafe { self.content.get_unchecked(self.first().len_utf8()..).chars().next().unwrap_unchecked() };
+        }
     }
 }
 
-pub struct Positioned<I: parser_input::ParserInput, T> {
-    pub position: parser_input::part::Position<I>,
+pub struct Positioned<T> {
+    pub position: usize,
     pub entity: T,
 }
 
 pub mod invocation_input {
     use super::*;
 
-    pub struct InvocationInput<I: parser_input::ParserInput> {
-        pub content: parser_input::part::Container<I>,
+    pub struct InvocationInput {
+        pub content: String,
     }
 }
 
 pub mod object_name {
     use super::*;
 
-    pub struct ObjectName<I: parser_input::ParserInput> {
-        pub content: parser_input::part::,
+    pub struct ObjectName {
+        pub content: NonEmptyString,
     }
 }
 
