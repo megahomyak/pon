@@ -1,16 +1,12 @@
 pub mod parser_input {
-    pub struct Next<I: ParserInput> {
-        pub part: part::Part<I>,
-        pub rest: I,
+    pub struct Next<P, R> {
+        pub part: P,
+        pub rest: R,
     }
     pub trait ParserInput: Sized {
-        type PartContent;
-        type PartContainer: Extend<Self::PartContent> + Default;
-        type PartContainerNonEmpty;
-        type PartPosition;
-        type Part: part::Part<Self>;
+        type Part: part::Part;
 
-        fn next(self) -> Option<Next<Self>>;
+        fn next(self) -> Option<Next<Self::Part, Self>>;
     }
     pub mod part {
         use super::*;
@@ -18,26 +14,39 @@ pub mod parser_input {
         pub mod container {
             use super::*;
 
-            pub struct NonEmpty<T>(pub T);
+            pub trait Container: Sized {
+                type NonEmpty;
+                type Item;
 
-            pub trait Container<I: ParserInput> {
-                fn push(&mut self, part_content: I::PartContent);
-                fn as_non_empty(self) -> Result<I::PartContainerNonEmpty, Self>;
+                fn push(&mut self, item: Self::Item);
+                fn as_non_empty(self) -> Result<Self::NonEmpty, Self>;
             }
         }
         pub enum Kind {
-            WordSeparator,
+            WordSeparator(),
+            InvocationInputOpener(),
+            InvocationInputCloser(),
+            Escape(),
+            Literal(),
         }
-        pub trait Part<I: ParserInput> {
-            fn content(&self) -> I::PartContent;
-            fn position(&self) -> I::PartPosition;
+        pub trait Part {
+            type Container: container::Container<Item = Self>;
+            type Content;
+            type Position;
+
+            fn content(&self) -> Self::Content;
+            fn position(&self) -> Self::Position;
             fn kind(&self) -> Kind;
         }
+        // The lines below were added for short types
+        pub type Position<I: ParserInput> = <I::Part as Part>::Position;
+        pub type Container<I: ParserInput> = <I::Part as Part>::Container;
+        pub type Content<I: ParserInput> = <I::Part as Part>::Content;
     }
 }
 
 pub struct Positioned<I: parser_input::ParserInput, T> {
-    pub position: I::PartPosition,
+    pub position: parser_input::part::Position<I>,
     pub entity: T,
 }
 
@@ -45,7 +54,7 @@ pub mod invocation_input {
     use super::*;
 
     pub struct InvocationInput<I: parser_input::ParserInput> {
-        pub content: I::PartContainer,
+        pub content: parser_input::part::Container<I>,
     }
 }
 
@@ -53,7 +62,7 @@ pub mod object_name {
     use super::*;
 
     pub struct ObjectName<I: parser_input::ParserInput> {
-        pub content: I::PartContainer,
+        pub content: parser_input::part::,
     }
 }
 
