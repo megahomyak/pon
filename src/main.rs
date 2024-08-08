@@ -1,4 +1,3 @@
-mod non_empty;
 mod parser;
 
 struct Line(String);
