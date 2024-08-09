@@ -45,7 +45,7 @@ fn read_program() -> ProgramReadingResult {
             full_program.push_str(line);
         }
         let (program, after_program) =
-            parser::program::parse(&mut parser::parser_input::Input::new(&full_program));
+            parser::program::parse(&mut parser::parser_input::ParserInput::new(&full_program));
         match after_program {
             parser::program::After::ParserInputEnd() => {
                 return ProgramReadingResult::Success(
@@ -79,7 +79,7 @@ impl ErrorPrinter {
         let mut line = 1;
         let mut column = 1;
         let mut line_content = &program.content[..];
-        for part in parser::parser_input::Input::new(&program.content) {
+        for part in parser::parser_input::ParserInput::new(&program.content) {
             if part.position == position {
                 break;
             }
